@@ -9,7 +9,7 @@ repositorio manualmente.
 Abra o **PowerShell como Administrador** e cole o comando abaixo:
 
 ```powershell
-irm https://raw.githubusercontent.com/BeniCode634/OptmizationLocal/main/optimize.ps1 | iex
+irm https://raw.githubusercontent.com/DodideiyuCode/OptmizationLocal/main/optimize.ps1 | iex
 ```
 
 Se o PowerShell nao estiver aberto como Administrador, o proprio script
@@ -41,6 +41,52 @@ Ao rodar o script, uma tela de termos de uso e exibida no console. Voce
 precisa navegar com as setas do teclado ate a opcao **SIM** e pressionar
 Enter para continuar. Selecionando **NAO**, o script e encerrado sem
 nenhuma alteracao no sistema.
+
+## Termo de responsabilidade
+
+Esta tela inclui um termo de responsabilidade. Ao selecionar **SIM**, voce
+declara estar ciente de que:
+
+- O script e fornecido "como esta", sem nenhuma garantia de qualquer tipo.
+- O autor e os mantenedores do repositorio Optmization Local **nao se
+  responsabilizam** por eventuais danos, perda de dados, instabilidade do
+  sistema, mau funcionamento de hardware ou software, ou qualquer
+  prejuizo direto ou indireto decorrente do uso deste script.
+- Um ponto de restauracao e criado automaticamente antes de qualquer
+  alteracao, mas a decisao de usa-lo para reverter mudancas e de
+  responsabilidade do usuario.
+- O uso deste script e por sua conta e risco.
+
+## Robustez e log de execucao
+
+A partir desta versao, o script:
+
+- Grava um log completo de cada execucao em
+  `%TEMP%\OptmizationLocal_log_AAAAMMDD_HHmmss.txt`, contendo o detalhe
+  completo de qualquer erro (o console mostra apenas um resumo de uma
+  linha, para nao poluir a tela).
+- Usa `$ErrorActionPreference = "Stop"` internamente, para que todo erro
+  de cada etapa seja realmente capturado pelo `try/catch` (evitando
+  falsos "OK" quando um comando falha silenciosamente no fundo).
+- Para gravacao no registro do Windows, usa uma estrategia de 3 niveis
+  de fallback: (1) cmdlet nativo do PowerShell, (2) `reg.exe`, e (3)
+  assumir a posse (ownership) da chave de registro quando ela estiver
+  protegida por permissoes restritas, tentando novamente em seguida.
+  Isso resolve casos como a chave `TaskbarDa` (Widgets), que em algumas
+  versoes do Windows 11 vem com permissoes mais restritas mesmo para
+  administradores.
+- Exibe uma barra de progresso e um resumo final com quantidade de
+  etapas concluidas com sucesso, quantidade de falhas e tempo total de
+  execucao.
+
+## Sobre apps que "falham" na remocao
+
+Alguns aplicativos do Windows (como partes do Xbox ou do People) sao
+pacotes de sistema protegidos pela Microsoft e nao podem ser removidos
+mesmo por scripts administrativos, em algumas builds do Windows. Quando
+isso acontece, o script registra a etapa como "FALHOU" e segue para a
+proxima, sem travar a execucao. Isso e esperado e nao indica um problema
+com o script.
 
 ## O que o script faz, etapa por etapa
 
