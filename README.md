@@ -1,4 +1,4 @@
-# Optmization Local
+# Optmization Local 1.2
 
 Script de otimizacao para **Windows 10 e Windows 11**, feito para rodar com
 um unico comando no PowerShell, sem precisar instalar nada nem clonar o
@@ -182,4 +182,4 @@ Use por sua conta e risco. Embora o script tenha sido feito para ser
 seguro e reversivel (com ponto de restauracao automatico), alteracoes de
 sistema sempre envolvem algum risco. Revise o codigo de `optimize.ps1`
 antes de executar se quiser entender exatamente o que sera feito na sua
-maquina.
+maquina. total responsa tua kk tmj obrigado por usar
