@@ -7,35 +7,83 @@
     irm https://raw.githubusercontent.com/BeniCode634/OptmizationLocal/main/optimize.ps1 | iex
 #>
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 $ScriptUrl = "https://raw.githubusercontent.com/BeniCode634/OptmizationLocal/main/optimize.ps1"
 
+$script:TotalOk = 0
+$script:TotalFalhou = 0
+$script:HoraInicio = Get-Date
+$script:CaminhoLog = Join-Path $env:TEMP ("OptmizationLocal_log_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".txt")
+
 # ==========================================================
-# FUNCOES AUXILIARES DE LOG
+# FUNCOES AUXILIARES DE LOG E VISUAL
 # ==========================================================
 
-function Write-Banner {
+function Write-Log {
     param([string]$Texto)
+    try {
+        $carimbo = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Add-Content -Path $script:CaminhoLog -Value "[$carimbo] $Texto" -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
+    catch {
+        # Se nem o log conseguir gravar, apenas ignora para nao travar o script.
+    }
+}
+
+function Write-Animado {
+    param(
+        [string]$Texto,
+        [ConsoleColor]$Cor = "White",
+        [int]$AtrasoMs = 6
+    )
+    foreach ($caractere in $Texto.ToCharArray()) {
+        Write-Host -NoNewline $caractere -ForegroundColor $Cor
+        Start-Sleep -Milliseconds $AtrasoMs
+    }
+    Write-Host ""
+}
+
+function Write-Banner {
+    param([string]$Texto, [int]$Atual = 0, [int]$Total = 0)
     Write-Host ""
     Write-Host "==========================================================" -ForegroundColor Cyan
-    Write-Host $Texto -ForegroundColor Cyan
+    Write-Animado -Texto $Texto -Cor Cyan -AtrasoMs 4
     Write-Host "==========================================================" -ForegroundColor Cyan
+    if ($Total -gt 0) {
+        Show-Progresso -Atual $Atual -Total $Total
+    }
+    Write-Log "===== $Texto ====="
+}
+
+function Show-Progresso {
+    param([int]$Atual, [int]$Total)
+    $percentual = [math]::Round(($Atual / $Total) * 100)
+    $preenchido = [math]::Round(($percentual / 100) * 30)
+    if ($preenchido -gt 30) { $preenchido = 30 }
+    $vazio = 30 - $preenchido
+    $barra = ("#" * $preenchido) + ("-" * $vazio)
+    Write-Host ("  [" + $barra + "] " + $percentual + "%") -ForegroundColor DarkCyan
 }
 
 function Write-Step {
     param([string]$Texto)
     Write-Host ""
-    Write-Host ">> $Texto" -ForegroundColor Yellow
+    Write-Host -NoNewline ">> " -ForegroundColor Yellow
+    Write-Animado -Texto $Texto -Cor Yellow -AtrasoMs 5
 }
 
 function Write-Ok {
     param([string]$Texto)
     Write-Host "   OK: $Texto" -ForegroundColor Green
+    Write-Log "OK: $Texto"
 }
 
 function Write-Falhou {
-    param([string]$Texto)
-    Write-Host "   FALHOU: $Texto" -ForegroundColor Red
+    param([string]$Nome, [string]$MensagemCompleta)
+    $primeiraLinha = ($MensagemCompleta -split "`r`n|`n")[0].Trim()
+    Write-Host "   FALHOU: $Nome -- $primeiraLinha" -ForegroundColor Red
+    Write-Host "   (detalhes completos no log: $script:CaminhoLog)" -ForegroundColor DarkGray
+    Write-Log "FALHOU: $Nome -- MENSAGEM COMPLETA: $MensagemCompleta"
 }
 
 function Invoke-Etapa {
@@ -47,9 +95,124 @@ function Invoke-Etapa {
     try {
         & $Acao
         Write-Ok $Nome
+        $script:TotalOk++
     }
     catch {
-        Write-Falhou "$Nome -- Detalhe: $($_.Exception.Message)"
+        Write-Falhou -Nome $Nome -MensagemCompleta $_.Exception.Message
+        $script:TotalFalhou++
+    }
+}
+
+function Invoke-ComandoExterno {
+    param(
+        [Parameter(Mandatory)][string]$Executavel,
+        [Parameter(Mandatory)][string[]]$Argumentos
+    )
+    $saida = & $Executavel @Argumentos 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Comando '$Executavel $($Argumentos -join ' ')' retornou codigo $LASTEXITCODE. Saida: $saida"
+    }
+    return $saida
+}
+
+# ==========================================================
+# GRAVACAO SEGURA NO REGISTRO (COM FALLBACK EM 3 NIVEIS)
+# ==========================================================
+
+function Set-RegistryOwnership {
+    param([string]$Caminho)
+
+    if ($Caminho -match "^(HKCU|HKLM):\\(.+)$") {
+        $hiveTexto = $Matches[1]
+        $subCaminho = $Matches[2]
+    }
+    else {
+        throw "Nao foi possivel interpretar o caminho de registro: $Caminho"
+    }
+
+    $hive = switch ($hiveTexto) {
+        "HKCU" { [Microsoft.Win32.Registry]::CurrentUser }
+        "HKLM" { [Microsoft.Win32.Registry]::LocalMachine }
+        default { throw "Hive de registro nao suportado: $hiveTexto" }
+    }
+
+    $direitos = [System.Security.AccessControl.RegistryRights]"TakeOwnership, ChangePermissions"
+    $chave = $hive.OpenSubKey($subCaminho, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, $direitos)
+
+    if (-not $chave) {
+        throw "Chave de registro nao encontrada para assumir posse: $Caminho"
+    }
+
+    try {
+        $acl = $chave.GetAccessControl()
+        $identidadeAtual = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $acl.SetOwner($identidadeAtual)
+        $chave.SetAccessControl($acl)
+
+        $regra = New-Object System.Security.AccessControl.RegistryAccessRule($identidadeAtual, "FullControl", "Allow")
+        $acl.AddAccessRule($regra)
+        $chave.SetAccessControl($acl)
+    }
+    finally {
+        $chave.Close()
+    }
+}
+
+function Set-RegistryValueSeguro {
+    param(
+        [Parameter(Mandatory)][string]$Caminho,
+        [Parameter(Mandatory)][string]$Nome,
+        [Parameter(Mandatory)]$Valor,
+        [string]$Tipo = "DWord"
+    )
+
+    if (-not (Test-Path $Caminho)) {
+        New-Item -Path $Caminho -Force -ErrorAction Stop | Out-Null
+    }
+
+    # Nivel 1: cmdlet nativo do PowerShell
+    try {
+        New-ItemProperty -Path $Caminho -Name $Nome -Value $Valor -PropertyType $Tipo -Force -ErrorAction Stop | Out-Null
+        return
+    }
+    catch {
+        Write-Log "Nivel 1 (cmdlet) falhou para '$Caminho\$Nome' -- $($_.Exception.Message)"
+    }
+
+    # Nivel 2: reg.exe (bypassa alguns bloqueios de ACL do .NET)
+    try {
+        $caminhoRegExe = $Caminho -replace "^HKCU:\\", "HKCU\" -replace "^HKLM:\\", "HKLM\"
+        $tipoReg = switch ($Tipo) {
+            "DWord"  { "REG_DWORD" }
+            "String" { "REG_SZ" }
+            "Binary" { "REG_BINARY" }
+            default  { "REG_SZ" }
+        }
+        $valorTexto = if ($Tipo -eq "Binary") {
+            -join ($Valor | ForEach-Object { $_.ToString("X2") })
+        }
+        else {
+            "$Valor"
+        }
+
+        $saidaReg = reg add "$caminhoRegExe" /v "$Nome" /t $tipoReg /d "$valorTexto" /f 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        Write-Log "Nivel 2 (reg.exe) falhou para '$Caminho\$Nome' -- $saidaReg"
+    }
+    catch {
+        Write-Log "Nivel 2 (reg.exe) gerou excecao para '$Caminho\$Nome' -- $($_.Exception.Message)"
+    }
+
+    # Nivel 3: assumir posse da chave e tentar novamente
+    try {
+        Set-RegistryOwnership -Caminho $Caminho
+        New-ItemProperty -Path $Caminho -Name $Nome -Value $Valor -PropertyType $Tipo -Force -ErrorAction Stop | Out-Null
+        return
+    }
+    catch {
+        throw "Nao foi possivel gravar '$Nome' em '$Caminho' apos 3 tentativas (cmdlet, reg.exe, posse da chave). Ultimo erro: $($_.Exception.Message)"
     }
 }
 
@@ -84,7 +247,7 @@ if (-not (Test-Administrador)) {
 }
 
 # ==========================================================
-# TELA DE TERMOS DE USO (SELECAO POR SETAS DO TECLADO)
+# TELA DE TERMOS DE USO E RESPONSABILIDADE (SETAS DO TECLADO)
 # ==========================================================
 
 function Show-TermoDeUso {
@@ -95,7 +258,7 @@ function Show-TermoDeUso {
     while (-not $confirmado) {
         Clear-Host
         Write-Host "==========================================================" -ForegroundColor Cyan
-        Write-Host "  OPTMIZATION LOCAL - TERMOS DE USO" -ForegroundColor Cyan
+        Write-Host "  OPTMIZATION LOCAL - TERMOS DE USO E RESPONSABILIDADE" -ForegroundColor Cyan
         Write-Host "==========================================================" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "Este script ira alterar configuracoes do sistema Windows,"
@@ -110,11 +273,22 @@ function Show-TermoDeUso {
         Write-Host "apagado. Apenas configuracoes do sistema e arquivos"
         Write-Host "temporarios reversiveis serao modificados."
         Write-Host ""
+        Write-Host "TERMO DE RESPONSABILIDADE:" -ForegroundColor Magenta
+        Write-Host "Este script e fornecido como esta, sem nenhuma garantia."
+        Write-Host "Ao selecionar SIM, voce declara estar ciente de que o"
+        Write-Host "autor e os mantenedores do repositorio Optmization Local"
+        Write-Host "nao se responsabilizam por eventuais danos, perda de"
+        Write-Host "dados, instabilidade do sistema, mau funcionamento de"
+        Write-Host "hardware ou software, ou qualquer prejuizo direto ou"
+        Write-Host "indireto decorrente do uso deste script. O ponto de"
+        Write-Host "restauracao e criado automaticamente, mas a decisao de"
+        Write-Host "usa-lo para reverter alteracoes e de sua responsabilidade."
+        Write-Host "O uso deste script e por sua conta e risco."
+        Write-Host ""
         Write-Host "Leia o repositorio completo antes de continuar:"
         Write-Host "https://github.com/BeniCode634/OptmizationLocal"
         Write-Host ""
-        Write-Host "Voce concorda com os termos descritos no README deste"
-        Write-Host "repositorio e deseja continuar?"
+        Write-Host "Voce concorda com os termos acima e deseja continuar?"
         Write-Host ""
 
         for ($i = 0; $i -lt $opcoes.Count; $i++) {
@@ -146,6 +320,7 @@ function Show-TermoDeUso {
 }
 
 $respostaTermo = Show-TermoDeUso
+Write-Log "Usuario respondeu aos termos de uso: $respostaTermo"
 
 if ($respostaTermo -ne "SIM") {
     Clear-Host
@@ -155,135 +330,113 @@ if ($respostaTermo -ne "SIM") {
 }
 
 Clear-Host
-Write-Banner "OPTMIZATION LOCAL - INICIANDO OTIMIZACAO"
-Write-Host "Termos aceitos. Iniciando o processo em instantes..." -ForegroundColor Green
-Start-Sleep -Seconds 2
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Animado -Texto "OPTMIZATION LOCAL - INICIANDO OTIMIZACAO" -Cor Cyan -AtrasoMs 8
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Animado -Texto "Termos aceitos. Iniciando o processo em instantes..." -Cor Green -AtrasoMs 8
+Write-Host "Log detalhado desta execucao: $script:CaminhoLog" -ForegroundColor DarkGray
+Start-Sleep -Seconds 1
+
+$totalEtapas = 12
 
 # ==========================================================
-# PONTO DE RESTAURACAO DO SISTEMA
+# ETAPA 1 - PONTO DE RESTAURACAO DO SISTEMA
 # ==========================================================
 
-Write-Banner "ETAPA 1 DE 12 - PONTO DE RESTAURACAO"
+Write-Banner -Texto "ETAPA 1 DE 12 - PONTO DE RESTAURACAO" -Atual 1 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Habilitando protecao do sistema no disco C" -Acao {
-    Enable-ComputerRestore -Drive "C:\" -ErrorAction SilentlyContinue
+    Enable-ComputerRestore -Drive "C:\" -ErrorAction Stop
 }
 
 Invoke-Etapa -Nome "Ajustando intervalo minimo entre pontos de restauracao" -Acao {
-    $caminhoRegistro = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore"
-    if (-not (Test-Path $caminhoRegistro)) {
-        New-Item -Path $caminhoRegistro -Force | Out-Null
-    }
-    New-ItemProperty -Path $caminhoRegistro -Name "SystemRestorePointCreationFrequency" -Value 0 -PropertyType DWord -Force | Out-Null
+    Set-RegistryValueSeguro -Caminho "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" -Nome "SystemRestorePointCreationFrequency" -Valor 0 -Tipo "DWord"
 }
 
 Invoke-Etapa -Nome "Criando ponto de restauracao (Optmization Local)" -Acao {
-    Checkpoint-Computer -Description "Optmization Local - Antes da otimizacao" -RestorePointType "MODIFY_SETTINGS"
+    Checkpoint-Computer -Description "Optmization Local - Antes da otimizacao" -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop
 }
 
 # ==========================================================
-# PLANO DE ENERGIA DE ALTO DESEMPENHO
+# ETAPA 2 - PLANO DE ENERGIA DE ALTO DESEMPENHO
 # ==========================================================
 
-Write-Banner "ETAPA 2 DE 12 - PLANO DE ENERGIA"
+Write-Banner -Texto "ETAPA 2 DE 12 - PLANO DE ENERGIA" -Atual 2 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Criando e ativando plano de Alto Desempenho" -Acao {
     $guidAltoDesempenho = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
     $planosExistentes = powercfg /list
     if ($planosExistentes -notmatch $guidAltoDesempenho) {
-        powercfg -duplicatescheme $guidAltoDesempenho | Out-Null
+        Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("-duplicatescheme", $guidAltoDesempenho) | Out-Null
     }
-    powercfg /setactive $guidAltoDesempenho
+    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/setactive", $guidAltoDesempenho) | Out-Null
 }
 
 Invoke-Etapa -Nome "Desativando timeout de monitor (AC e bateria)" -Acao {
-    powercfg /change monitor-timeout-ac 0
-    powercfg /change monitor-timeout-dc 0
+    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "monitor-timeout-ac", "0") | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "monitor-timeout-dc", "0") | Out-Null
 }
 
 Invoke-Etapa -Nome "Desativando timeout de standby (AC e bateria)" -Acao {
-    powercfg /change standby-timeout-ac 0
-    powercfg /change standby-timeout-dc 0
+    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "standby-timeout-ac", "0") | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "standby-timeout-dc", "0") | Out-Null
 }
 
 Invoke-Etapa -Nome "Desativando hibernacao" -Acao {
-    powercfg /hibernate off
+    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/hibernate", "off") | Out-Null
 }
 
 # ==========================================================
-# VISUAL - TRANSPARENCIA E EFEITOS
+# ETAPA 3 - EFEITOS VISUAIS
 # ==========================================================
 
-Write-Banner "ETAPA 3 DE 12 - EFEITOS VISUAIS"
+Write-Banner -Texto "ETAPA 3 DE 12 - EFEITOS VISUAIS" -Atual 3 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Desativando transparencia do Windows" -Acao {
-    $caminho = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-    if (-not (Test-Path $caminho)) {
-        New-Item -Path $caminho -Force | Out-Null
-    }
-    Set-ItemProperty -Path $caminho -Name "EnableTransparency" -Value 0 -Type DWord
+    Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Nome "EnableTransparency" -Valor 0 -Tipo "DWord"
 }
 
 Invoke-Etapa -Nome "Ajustando efeitos visuais para melhor desempenho" -Acao {
-    $caminhoEfeitos = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects"
-    if (-not (Test-Path $caminhoEfeitos)) {
-        New-Item -Path $caminhoEfeitos -Force | Out-Null
-    }
-    Set-ItemProperty -Path $caminhoEfeitos -Name "VisualFXSetting" -Value 2 -Type DWord
+    Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" -Nome "VisualFXSetting" -Valor 2 -Tipo "DWord"
 
-    $mascara = [byte[]](144,18,3,128,16,0,0,0)
-    $caminhoMascara = "HKCU:\Control Panel\Desktop"
-    Set-ItemProperty -Path $caminhoMascara -Name "UserPreferencesMask" -Value $mascara -Type Binary
+    $mascara = [byte[]](144, 18, 3, 128, 16, 0, 0, 0)
+    Set-RegistryValueSeguro -Caminho "HKCU:\Control Panel\Desktop" -Nome "UserPreferencesMask" -Valor $mascara -Tipo "Binary"
 }
 
 Invoke-Etapa -Nome "Desativando animacoes de janelas e menus" -Acao {
-    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop\WindowMetrics" -Name "MinAnimate" -Value 0 -Type String -Force -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value 0 -Type String -Force
+    Set-RegistryValueSeguro -Caminho "HKCU:\Control Panel\Desktop\WindowMetrics" -Nome "MinAnimate" -Valor "0" -Tipo "String"
+    Set-RegistryValueSeguro -Caminho "HKCU:\Control Panel\Desktop" -Nome "MenuShowDelay" -Valor "0" -Tipo "String"
 }
 
 # ==========================================================
-# LIMPEZA DA BARRA DE TAREFAS
+# ETAPA 4 - LIMPEZA DA BARRA DE TAREFAS
 # ==========================================================
 
-Write-Banner "ETAPA 4 DE 12 - BARRA DE TAREFAS"
+Write-Banner -Texto "ETAPA 4 DE 12 - BARRA DE TAREFAS" -Atual 4 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Ocultando botao Task View" -Acao {
-    $caminho = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-    Set-ItemProperty -Path $caminho -Name "ShowTaskViewButton" -Value 0 -Type DWord -Force
+    Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Nome "ShowTaskViewButton" -Valor 0 -Tipo "DWord"
 }
 
 Invoke-Etapa -Nome "Desativando Widgets na barra de tarefas" -Acao {
-    $caminho = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-    Set-ItemProperty -Path $caminho -Name "TaskbarDa" -Value 0 -Type DWord -Force
-
-    $caminhoPolitica = "HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
-    if (-not (Test-Path $caminhoPolitica)) {
-        New-Item -Path $caminhoPolitica -Force | Out-Null
-    }
-    Set-ItemProperty -Path $caminhoPolitica -Name "AllowNewsAndInterests" -Value 0 -Type DWord -Force
+    Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Nome "TaskbarDa" -Valor 0 -Tipo "DWord"
+    Set-RegistryValueSeguro -Caminho "HKLM:\SOFTWARE\Policies\Microsoft\Dsh" -Nome "AllowNewsAndInterests" -Valor 0 -Tipo "DWord"
 }
 
 Invoke-Etapa -Nome "Desativando icone de Chat/Teams na barra de tarefas" -Acao {
-    $caminho = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-    Set-ItemProperty -Path $caminho -Name "TaskbarMn" -Value 0 -Type DWord -Force
+    Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Nome "TaskbarMn" -Valor 0 -Tipo "DWord"
 }
 
 Invoke-Etapa -Nome "Desativando Copilot do Windows" -Acao {
-    $caminho = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-    Set-ItemProperty -Path $caminho -Name "ShowCopilotButton" -Value 0 -Type DWord -Force
-
-    $caminhoPolitica = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot"
-    if (-not (Test-Path $caminhoPolitica)) {
-        New-Item -Path $caminhoPolitica -Force | Out-Null
-    }
-    Set-ItemProperty -Path $caminhoPolitica -Name "TurnOffWindowsCopilot" -Value 1 -Type DWord -Force
+    Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Nome "ShowCopilotButton" -Valor 0 -Tipo "DWord"
+    Set-RegistryValueSeguro -Caminho "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" -Nome "TurnOffWindowsCopilot" -Valor 1 -Tipo "DWord"
 }
 
 # ==========================================================
-# SERVICOS NAO ESSENCIAIS
+# ETAPA 5 - SERVICOS NAO ESSENCIAIS
 # ==========================================================
 
-Write-Banner "ETAPA 5 DE 12 - SERVICOS DO WINDOWS"
+Write-Banner -Texto "ETAPA 5 DE 12 - SERVICOS DO WINDOWS" -Atual 5 -Total $totalEtapas
 
 $listaServicos = @(
     "SysMain",
@@ -307,16 +460,16 @@ foreach ($nomeServico in $listaServicos) {
             Set-Service -Name $nomeServico -StartupType Disabled -ErrorAction Stop
         }
         else {
-            throw "Servico nao encontrado neste sistema."
+            throw "Servico nao encontrado neste sistema (normal em algumas edicoes do Windows)."
         }
     }
 }
 
 # ==========================================================
-# REMOCAO DE APPS UWP DESNECESSARIOS
+# ETAPA 6 - REMOCAO DE APPS UWP DESNECESSARIOS
 # ==========================================================
 
-Write-Banner "ETAPA 6 DE 12 - APPS PADRAO DO WINDOWS"
+Write-Banner -Texto "ETAPA 6 DE 12 - APPS PADRAO DO WINDOWS" -Atual 6 -Total $totalEtapas
 
 $listaApps = @(
     "*3DBuilder*",
@@ -344,51 +497,67 @@ $listaApps = @(
 
 foreach ($padraoApp in $listaApps) {
     Invoke-Etapa -Nome "Removendo app: $padraoApp" -Acao {
+        $encontrouAlgumaCoisa = $false
+        $falhouRemocao = $false
+        $ultimoErro = ""
+
         $pacotesInstalados = Get-AppxPackage -AllUsers -Name $padraoApp -ErrorAction SilentlyContinue
         if ($pacotesInstalados) {
-            $pacotesInstalados | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+            $encontrouAlgumaCoisa = $true
+            foreach ($pacote in $pacotesInstalados) {
+                try {
+                    $pacote | Remove-AppxPackage -AllUsers -ErrorAction Stop
+                }
+                catch {
+                    $falhouRemocao = $true
+                    $ultimoErro = $_.Exception.Message
+                }
+            }
         }
 
         $pacotesProvisionados = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like $padraoApp }
         if ($pacotesProvisionados) {
+            $encontrouAlgumaCoisa = $true
             foreach ($pacote in $pacotesProvisionados) {
-                Remove-AppxProvisionedPackage -Online -PackageName $pacote.PackageName -ErrorAction SilentlyContinue | Out-Null
+                try {
+                    Remove-AppxProvisionedPackage -Online -PackageName $pacote.PackageName -ErrorAction Stop | Out-Null
+                }
+                catch {
+                    $falhouRemocao = $true
+                    $ultimoErro = $_.Exception.Message
+                }
             }
         }
 
-        if (-not $pacotesInstalados -and -not $pacotesProvisionados) {
+        if (-not $encontrouAlgumaCoisa) {
             throw "App nao encontrado neste sistema."
+        }
+
+        if ($falhouRemocao) {
+            throw "App protegido pelo sistema, nao pode ser removido nesta build do Windows. Detalhe: $ultimoErro"
         }
     }
 }
 
 # ==========================================================
-# TELEMETRIA
+# ETAPA 7 - TELEMETRIA
 # ==========================================================
 
-Write-Banner "ETAPA 7 DE 12 - TELEMETRIA"
+Write-Banner -Texto "ETAPA 7 DE 12 - TELEMETRIA" -Atual 7 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Desativando telemetria via registro (AllowTelemetry)" -Acao {
-    $caminho = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"
-    if (-not (Test-Path $caminho)) {
-        New-Item -Path $caminho -Force | Out-Null
-    }
-    Set-ItemProperty -Path $caminho -Name "AllowTelemetry" -Value 0 -Type DWord -Force
+    Set-RegistryValueSeguro -Caminho "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Nome "AllowTelemetry" -Valor 0 -Tipo "DWord"
 }
 
 Invoke-Etapa -Nome "Desativando telemetria via registro do usuario atual" -Acao {
-    $caminho = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Privacy"
-    if (-not (Test-Path $caminho)) {
-        New-Item -Path $caminho -Force | Out-Null
-    }
-    Set-ItemProperty -Path $caminho -Name "TailoredExperiencesWithDiagnosticDataEnabled" -Value 0 -Type DWord -Force
+    Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Privacy" -Nome "TailoredExperiencesWithDiagnosticDataEnabled" -Valor 0 -Tipo "DWord"
 }
 
 # ==========================================================
-# ENCERRAR PROCESSOS DESNECESSARIOS
+# ETAPA 8 - ENCERRAR PROCESSOS DESNECESSARIOS
 # ==========================================================
 
-Write-Banner "ETAPA 8 DE 12 - PROCESSOS EM EXECUCAO"
+Write-Banner -Texto "ETAPA 8 DE 12 - PROCESSOS EM EXECUCAO" -Atual 8 -Total $totalEtapas
 
 $listaProcessos = @("OneDrive", "Cortana", "SearchApp", "Widgets", "YourPhone")
 
@@ -399,70 +568,67 @@ foreach ($nomeProcesso in $listaProcessos) {
             Stop-Process -Name $nomeProcesso -Force -ErrorAction Stop
         }
         else {
-            throw "Processo nao estava em execucao."
+            throw "Processo nao estava em execucao (nada a fazer)."
         }
     }
 }
 
 # ==========================================================
-# SUGESTOES E ANUNCIOS DO MENU START
+# ETAPA 9 - SUGESTOES E ANUNCIOS DO MENU START
 # ==========================================================
 
-Write-Banner "ETAPA 9 DE 12 - SUGESTOES DO MENU INICIAR"
+Write-Banner -Texto "ETAPA 9 DE 12 - SUGESTOES DO MENU INICIAR" -Atual 9 -Total $totalEtapas
 
-Invoke-Etapa -Nome "Desativando sugestoes e anuncios do menu Start" -Acao {
-    $caminho = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
-    if (-not (Test-Path $caminho)) {
-        New-Item -Path $caminho -Force | Out-Null
-    }
+$propriedadesContentDelivery = @(
+    "SubscribedContent-338388Enabled",
+    "SubscribedContent-338389Enabled",
+    "SubscribedContent-353694Enabled",
+    "SubscribedContent-353696Enabled",
+    "SystemPaneSuggestionsEnabled",
+    "SilentInstalledAppsEnabled",
+    "ContentDeliveryAllowed",
+    "OemPreInstalledAppsEnabled",
+    "PreInstalledAppsEnabled",
+    "PreInstalledAppsEverEnabled"
+)
 
-    $propriedades = @(
-        "SubscribedContent-338388Enabled",
-        "SubscribedContent-338389Enabled",
-        "SubscribedContent-353694Enabled",
-        "SubscribedContent-353696Enabled",
-        "SystemPaneSuggestionsEnabled",
-        "SilentInstalledAppsEnabled",
-        "ContentDeliveryAllowed",
-        "OemPreInstalledAppsEnabled",
-        "PreInstalledAppsEnabled",
-        "PreInstalledAppsEverEnabled"
-    )
-
-    foreach ($propriedade in $propriedades) {
-        Set-ItemProperty -Path $caminho -Name $propriedade -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+foreach ($propriedade in $propriedadesContentDelivery) {
+    Invoke-Etapa -Nome "Desativando sugestao do menu Start: $propriedade" -Acao {
+        Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" -Nome $propriedade -Valor 0 -Tipo "DWord"
     }
 }
 
 # ==========================================================
-# LIMPEZA DE ARQUIVOS TEMPORARIOS
+# ETAPA 10 - LIMPEZA DE ARQUIVOS TEMPORARIOS
 # ==========================================================
 
-Write-Banner "ETAPA 10 DE 12 - ARQUIVOS TEMPORARIOS"
+Write-Banner -Texto "ETAPA 10 DE 12 - ARQUIVOS TEMPORARIOS" -Atual 10 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Limpando pasta temp do usuario" -Acao {
     $caminhoTemp = $env:TEMP
     if (Test-Path $caminhoTemp) {
-        Get-ChildItem -Path $caminhoTemp -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $caminhoTemp -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
 Invoke-Etapa -Nome "Limpando pasta temp do Windows" -Acao {
     $caminhoTempWindows = "C:\Windows\Temp"
     if (Test-Path $caminhoTempWindows) {
-        Get-ChildItem -Path $caminhoTempWindows -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $caminhoTempWindows -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
 Invoke-Etapa -Nome "Limpando lixeira do sistema" -Acao {
-    Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+    Clear-RecycleBin -Force -ErrorAction Stop
 }
 
 # ==========================================================
-# REINICIAR O EXPLORER
+# ETAPA 11 - REINICIAR O EXPLORER
 # ==========================================================
 
-Write-Banner "ETAPA 11 DE 12 - REINICIANDO O EXPLORER"
+Write-Banner -Texto "ETAPA 11 DE 12 - REINICIANDO O EXPLORER" -Atual 11 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Reiniciando processo explorer.exe" -Acao {
     Stop-Process -Name explorer -Force -ErrorAction Stop
@@ -471,17 +637,37 @@ Invoke-Etapa -Nome "Reiniciando processo explorer.exe" -Acao {
 }
 
 # ==========================================================
-# FINALIZACAO
+# ETAPA 12 - FINALIZACAO E RESUMO
 # ==========================================================
 
-Write-Banner "ETAPA 12 DE 12 - CONCLUIDO"
+Write-Banner -Texto "ETAPA 12 DE 12 - CONCLUIDO" -Atual 12 -Total $totalEtapas
+
+$duracaoTotal = (Get-Date) - $script:HoraInicio
+$duracaoFormatada = "{0:mm} min {0:ss} seg" -f $duracaoTotal
 
 Write-Host ""
-Write-Host "Otimizacao concluida." -ForegroundColor Green
+Write-Animado -Texto "Otimizacao concluida." -Cor Green -AtrasoMs 10
+Write-Host ""
+Write-Host "  Resumo da execucao" -ForegroundColor Cyan
+Write-Host "  -------------------"
+Write-Host ("  Etapas concluidas com sucesso : " + $script:TotalOk) -ForegroundColor Green
+Write-Host ("  Etapas com falha              : " + $script:TotalFalhou) -ForegroundColor $(if ($script:TotalFalhou -gt 0) { "Yellow" } else { "Green" })
+Write-Host ("  Tempo total de execucao       : " + $duracaoFormatada)
+Write-Host ("  Log completo salvo em         : " + $script:CaminhoLog)
+Write-Host ""
 Write-Host "Um ponto de restauracao foi criado antes das alteracoes." -ForegroundColor Green
 Write-Host "Caso algo nao funcione como esperado, use a Restauracao do" -ForegroundColor Green
 Write-Host "Sistema do Windows para reverter." -ForegroundColor Green
 Write-Host ""
+
+if ($script:TotalFalhou -gt 0) {
+    Write-Host "Algumas etapas falharam (normal em varias edicoes/versoes" -ForegroundColor Yellow
+    Write-Host "do Windows, onde certos apps/servicos ja nao existem ou" -ForegroundColor Yellow
+    Write-Host "sao protegidos pelo sistema). Consulte o log para detalhes." -ForegroundColor Yellow
+    Write-Host ""
+}
+
+Write-Log "===== RESUMO FINAL: $script:TotalOk OK / $script:TotalFalhou FALHOU / Duracao $duracaoFormatada ====="
 
 $respostaReinicio = Read-Host "Deseja reiniciar o computador agora para aplicar todas as alteracoes? (S/N)"
 
