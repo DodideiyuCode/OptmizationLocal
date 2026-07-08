@@ -1,19 +1,48 @@
 #requires -Version 5.1
 <#
-    optimize.ps1
-    Repositorio: BeniCode634/OptmizationLocal
+    optimize.ps1  -  v1.2
+    Repositorio: DodideiyuCode/OptmizationLocal
     Script de otimizacao para Windows 10/11
+
     Execucao remota recomendada:
-    irm https://raw.githubusercontent.com/BeniCode634/OptmizationLocal/main/optimize.ps1 | iex
+    irm https://raw.githubusercontent.com/DodideiyuCode/OptmizationLocal/main/optimize.ps1 | iex
 #>
 
 $ErrorActionPreference = "Stop"
-$ScriptUrl = "https://raw.githubusercontent.com/BeniCode634/OptmizationLocal/main/optimize.ps1"
+$script:Versao   = "v1.2"
+$ScriptUrl       = "https://raw.githubusercontent.com/DodideiyuCode/OptmizationLocal/main/optimize.ps1"
 
-$script:TotalOk = 0
+# Corrige erro comum de TLS em Windows/PowerShell mais antigos ao baixar do GitHub
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+}
+catch { }
+
+$script:TotalOk     = 0
 $script:TotalFalhou = 0
-$script:HoraInicio = Get-Date
-$script:CaminhoLog = Join-Path $env:TEMP ("OptmizationLocal_log_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".txt")
+$script:TotalPulou  = 0
+$script:HoraInicio  = Get-Date
+$script:Carimbo     = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# ==========================================================
+# ESTRUTURA DE PASTAS (C:\Otimizacoes by Dodideiyu)
+# ==========================================================
+
+$script:PastaBase   = "C:\Otimizações by Dodideiyu"
+$script:PastaLogs   = Join-Path $script:PastaBase "Logs"
+$script:PastaBackup = Join-Path $script:PastaBase "Backup de Configuracoes"
+
+foreach ($pasta in @($script:PastaBase, $script:PastaLogs, $script:PastaBackup)) {
+    if (-not (Test-Path $pasta)) {
+        New-Item -Path $pasta -ItemType Directory -Force | Out-Null
+    }
+}
+
+$script:CaminhoLog          = Join-Path $script:PastaLogs   ("log_" + $script:Carimbo + ".txt")
+$script:CaminhoRelatorio    = Join-Path $script:PastaBase   ("relatorio_" + $script:Carimbo + ".txt")
+$script:CaminhoBackupConfig = Join-Path $script:PastaBackup ("config_antiga_" + $script:Carimbo + ".json")
+$script:BackupValores       = [System.Collections.Generic.List[object]]::new()
+$script:RelatorioEtapas     = [System.Collections.Generic.List[object]]::new()
 
 # ==========================================================
 # FUNCOES AUXILIARES DE LOG E VISUAL
@@ -25,9 +54,7 @@ function Write-Log {
         $carimbo = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         Add-Content -Path $script:CaminhoLog -Value "[$carimbo] $Texto" -Encoding UTF8 -ErrorAction SilentlyContinue
     }
-    catch {
-        # Se nem o log conseguir gravar, apenas ignora para nao travar o script.
-    }
+    catch { }
 }
 
 function Write-Animado {
@@ -43,12 +70,30 @@ function Write-Animado {
     Write-Host ""
 }
 
+function Get-LarguraConsole {
+    try {
+        $largura = $Host.UI.RawUI.WindowSize.Width
+        if (-not $largura -or $largura -lt 40) { return 70 }
+        return $largura
+    }
+    catch { return 70 }
+}
+
+function Write-CabecalhoComVersao {
+    param([string]$TituloEsquerda = "OPTIMIZATION LOCAL - by Dodideiyu")
+    $largura = Get-LarguraConsole
+    $rotuloVersao = "[$script:Versao]"
+    $espacos = $largura - $TituloEsquerda.Length - $rotuloVersao.Length - 1
+    if ($espacos -lt 1) { $espacos = 1 }
+    Write-Host ("=" * $largura) -ForegroundColor Cyan
+    Write-Host ($TituloEsquerda + (" " * $espacos) + $rotuloVersao) -ForegroundColor Cyan
+    Write-Host ("=" * $largura) -ForegroundColor Cyan
+}
+
 function Write-Banner {
     param([string]$Texto, [int]$Atual = 0, [int]$Total = 0)
     Write-Host ""
-    Write-Host "==========================================================" -ForegroundColor Cyan
-    Write-Animado -Texto $Texto -Cor Cyan -AtrasoMs 4
-    Write-Host "==========================================================" -ForegroundColor Cyan
+    Write-CabecalhoComVersao -TituloEsquerda $Texto
     if ($Total -gt 0) {
         Show-Progresso -Atual $Atual -Total $Total
     }
@@ -76,6 +121,7 @@ function Write-Ok {
     param([string]$Texto)
     Write-Host "   OK: $Texto" -ForegroundColor Green
     Write-Log "OK: $Texto"
+    $script:RelatorioEtapas.Add([PSCustomObject]@{ Etapa = $Texto; Resultado = "OK"; Detalhe = "" })
 }
 
 function Write-Falhou {
@@ -84,6 +130,14 @@ function Write-Falhou {
     Write-Host "   FALHOU: $Nome -- $primeiraLinha" -ForegroundColor Red
     Write-Host "   (detalhes completos no log: $script:CaminhoLog)" -ForegroundColor DarkGray
     Write-Log "FALHOU: $Nome -- MENSAGEM COMPLETA: $MensagemCompleta"
+    $script:RelatorioEtapas.Add([PSCustomObject]@{ Etapa = $Nome; Resultado = "FALHOU"; Detalhe = $primeiraLinha })
+}
+
+function Write-Pulada {
+    param([string]$Nome, [string]$Motivo)
+    Write-Host "   PULADA: $Nome -- $Motivo" -ForegroundColor DarkYellow
+    Write-Log "PULADA: $Nome -- $Motivo"
+    $script:RelatorioEtapas.Add([PSCustomObject]@{ Etapa = $Nome; Resultado = "PULADA"; Detalhe = $Motivo })
 }
 
 function Invoke-Etapa {
@@ -103,6 +157,22 @@ function Invoke-Etapa {
     }
 }
 
+function Invoke-EtapaSeAplicavel {
+    param(
+        [string]$Nome,
+        [bool]$Condicao,
+        [string]$MotivoSeNaoAplicavel,
+        [scriptblock]$Acao
+    )
+    if (-not $Condicao) {
+        Write-Step $Nome
+        Write-Pulada -Nome $Nome -Motivo $MotivoSeNaoAplicavel
+        $script:TotalPulou++
+        return
+    }
+    Invoke-Etapa -Nome $Nome -Acao $Acao
+}
+
 function Invoke-ComandoExterno {
     param(
         [Parameter(Mandatory)][string]$Executavel,
@@ -113,6 +183,54 @@ function Invoke-ComandoExterno {
         throw "Comando '$Executavel $($Argumentos -join ' ')' retornou codigo $LASTEXITCODE. Saida: $saida"
     }
     return $saida
+}
+
+# ==========================================================
+# INFORMACOES DO SISTEMA (VERSAO DO WINDOWS)
+# ==========================================================
+
+function Get-InfoSistema {
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        $build = [int]$os.BuildNumber
+        $nome = if ($build -ge 22000) { "Windows 11" } else { "Windows 10" }
+        return [PSCustomObject]@{
+            Nome    = $nome
+            Build   = $build
+            Versao  = $os.Version
+            Arquitetura = $os.OSArchitecture
+        }
+    }
+    catch {
+        return [PSCustomObject]@{ Nome = "Desconhecido"; Build = 0; Versao = "N/D"; Arquitetura = "N/D" }
+    }
+}
+
+$script:InfoSistema = Get-InfoSistema
+
+# ==========================================================
+# BACKUP DE VALORES ANTIGOS DO REGISTRO (PARA REFERENCIA)
+# ==========================================================
+
+function Backup-ValorAntigo {
+    param(
+        [string]$Caminho,
+        [string]$Nome
+    )
+    try {
+        $valorAtual = Get-ItemProperty -Path $Caminho -Name $Nome -ErrorAction SilentlyContinue
+        $existiaAntes = $null -ne $valorAtual
+        $script:BackupValores.Add([PSCustomObject]@{
+            DataHora     = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+            Caminho      = $Caminho
+            Nome         = $Nome
+            ExistiaAntes = $existiaAntes
+            ValorAntigo  = if ($existiaAntes) { $valorAtual.$Nome } else { $null }
+        })
+    }
+    catch {
+        Write-Log "Nao foi possivel salvar backup do valor antigo de '$Caminho\$Nome' -- $($_.Exception.Message)"
+    }
 }
 
 # ==========================================================
@@ -165,6 +283,8 @@ function Set-RegistryValueSeguro {
         [Parameter(Mandatory)]$Valor,
         [string]$Tipo = "DWord"
     )
+
+    Backup-ValorAntigo -Caminho $Caminho -Nome $Nome
 
     if (-not (Test-Path $Caminho)) {
         New-Item -Path $Caminho -Force -ErrorAction Stop | Out-Null
@@ -257,9 +377,7 @@ function Show-TermoDeUso {
 
     while (-not $confirmado) {
         Clear-Host
-        Write-Host "==========================================================" -ForegroundColor Cyan
-        Write-Host "  OPTMIZATION LOCAL - TERMOS DE USO E RESPONSABILIDADE" -ForegroundColor Cyan
-        Write-Host "==========================================================" -ForegroundColor Cyan
+        Write-CabecalhoComVersao -TituloEsquerda "TERMOS DE USO E RESPONSABILIDADE"
         Write-Host ""
         Write-Host "Este script ira alterar configuracoes do sistema Windows,"
         Write-Host "incluindo plano de energia, servicos, apps padrao, registro"
@@ -267,7 +385,8 @@ function Show-TermoDeUso {
         Write-Host ""
         Write-Host "Antes de qualquer alteracao, sera criado um PONTO DE"
         Write-Host "RESTAURACAO DO SISTEMA, permitindo reverter tudo caso"
-        Write-Host "necessario."
+        Write-Host "necessario. Alem disso, os valores antigos do registro"
+        Write-Host "serao salvos em '$script:PastaBackup' para referencia."
         Write-Host ""
         Write-Host "Nenhum arquivo pessoal (documentos, fotos, downloads) sera"
         Write-Host "apagado. Apenas configuracoes do sistema e arquivos"
@@ -286,7 +405,7 @@ function Show-TermoDeUso {
         Write-Host "O uso deste script e por sua conta e risco."
         Write-Host ""
         Write-Host "Leia o repositorio completo antes de continuar:"
-        Write-Host "https://github.com/BeniCode634/OptmizationLocal"
+        Write-Host "https://github.com/DodideiyuCode/OptmizationLocal"
         Write-Host ""
         Write-Host "Voce concorda com os termos acima e deseja continuar?"
         Write-Host ""
@@ -307,12 +426,12 @@ function Show-TermoDeUso {
         $tecla = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
         switch ($tecla.VirtualKeyCode) {
-            37 { $selecionado = 0 }  # seta esquerda
-            38 { $selecionado = 0 }  # seta cima
-            39 { $selecionado = 1 }  # seta direita
-            40 { $selecionado = 1 }  # seta baixo
-            9  { $selecionado = 1 - $selecionado }  # tab alterna
-            13 { $confirmado = $true }  # enter
+            37 { $selecionado = 0 }
+            38 { $selecionado = 0 }
+            39 { $selecionado = 1 }
+            40 { $selecionado = 1 }
+            9  { $selecionado = 1 - $selecionado }
+            13 { $confirmado = $true }
         }
     }
 
@@ -329,12 +448,48 @@ if ($respostaTermo -ne "SIM") {
     exit
 }
 
+# ==========================================================
+# TELA CENTRAL DE BOAS-VINDAS (SEM LOGIN, SO CONFIRMACAO)
+# ==========================================================
+
+function Show-TelaBoasVindas {
+    Clear-Host
+    $largura = Get-LarguraConsole
+    $linhas = @(
+        "",
+        "OPTIMIZATION LOCAL $script:Versao",
+        "by Dodideiyu",
+        "",
+        "Sistema detectado : $($script:InfoSistema.Nome) (build $($script:InfoSistema.Build))",
+        "Arquitetura       : $($script:InfoSistema.Arquitetura)",
+        "Pasta de trabalho : $script:PastaBase",
+        "",
+        "Pressione ENTER para iniciar a otimizacao..."
+    )
+
+    $maiorLinha = ($linhas | Measure-Object -Property Length -Maximum).Maximum
+    $margem = 4
+    $largCaixa = [Math]::Min($largura - 2, $maiorLinha + ($margem * 2))
+
+    Write-Host ("+" + ("-" * $largCaixa) + "+") -ForegroundColor Cyan
+    foreach ($linha in $linhas) {
+        $espacoRestante = $largCaixa - $linha.Length
+        $esquerda = [Math]::Floor($espacoRestante / 2)
+        $direita = $espacoRestante - $esquerda
+        Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor Cyan
+    }
+    Write-Host ("+" + ("-" * $largCaixa) + "+") -ForegroundColor Cyan
+
+    [void][System.Console]::ReadLine()
+}
+
+Show-TelaBoasVindas
+
 Clear-Host
-Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Animado -Texto "OPTMIZATION LOCAL - INICIANDO OTIMIZACAO" -Cor Cyan -AtrasoMs 8
-Write-Host "==========================================================" -ForegroundColor Cyan
+Write-CabecalhoComVersao -TituloEsquerda "INICIANDO OTIMIZACAO"
 Write-Animado -Texto "Termos aceitos. Iniciando o processo em instantes..." -Cor Green -AtrasoMs 8
-Write-Host "Log detalhado desta execucao: $script:CaminhoLog" -ForegroundColor DarkGray
+Write-Host "Pasta de trabalho : $script:PastaBase" -ForegroundColor DarkGray
+Write-Host "Log desta execucao: $script:CaminhoLog" -ForegroundColor DarkGray
 Start-Sleep -Seconds 1
 
 $totalEtapas = 12
@@ -346,7 +501,15 @@ $totalEtapas = 12
 Write-Banner -Texto "ETAPA 1 DE 12 - PONTO DE RESTAURACAO" -Atual 1 -Total $totalEtapas
 
 Invoke-Etapa -Nome "Habilitando protecao do sistema no disco C" -Acao {
-    Enable-ComputerRestore -Drive "C:\" -ErrorAction Stop
+    try {
+        Enable-ComputerRestore -Drive "C:\" -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception.Message -match "already enabled|ja esta habilitad") {
+            # Protecao ja estava ativa - nao e uma falha real
+        }
+        else { throw }
+    }
 }
 
 Invoke-Etapa -Nome "Ajustando intervalo minimo entre pontos de restauracao" -Acao {
@@ -418,12 +581,12 @@ Invoke-Etapa -Nome "Ocultando botao Task View" -Acao {
     Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Nome "ShowTaskViewButton" -Valor 0 -Tipo "DWord"
 }
 
-Invoke-Etapa -Nome "Desativando Widgets na barra de tarefas" -Acao {
+Invoke-EtapaSeAplicavel -Nome "Desativando Widgets na barra de tarefas" -Condicao ($script:InfoSistema.Build -ge 22000) -MotivoSeNaoAplicavel "Recurso de Widgets so existe no Windows 11" -Acao {
     Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Nome "TaskbarDa" -Valor 0 -Tipo "DWord"
     Set-RegistryValueSeguro -Caminho "HKLM:\SOFTWARE\Policies\Microsoft\Dsh" -Nome "AllowNewsAndInterests" -Valor 0 -Tipo "DWord"
 }
 
-Invoke-Etapa -Nome "Desativando icone de Chat/Teams na barra de tarefas" -Acao {
+Invoke-EtapaSeAplicavel -Nome "Desativando icone de Chat/Teams na barra de tarefas" -Condicao ($script:InfoSistema.Build -ge 22000) -MotivoSeNaoAplicavel "Icone de Chat so existe no Windows 11" -Acao {
     Set-RegistryValueSeguro -Caminho "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Nome "TaskbarMn" -Valor 0 -Tipo "DWord"
 }
 
@@ -439,29 +602,15 @@ Invoke-Etapa -Nome "Desativando Copilot do Windows" -Acao {
 Write-Banner -Texto "ETAPA 5 DE 12 - SERVICOS DO WINDOWS" -Atual 5 -Total $totalEtapas
 
 $listaServicos = @(
-    "SysMain",
-    "WSearch",
-    "DiagTrack",
-    "dmwappushservice",
-    "Fax",
-    "Spooler",
-    "XblAuthManager",
-    "XblGameSave",
-    "XboxGipSvc",
-    "WbioSrvc",
-    "RetailDemo"
+    "SysMain", "WSearch", "DiagTrack", "dmwappushservice", "Fax", "Spooler",
+    "XblAuthManager", "XblGameSave", "XboxGipSvc", "WbioSrvc", "RetailDemo"
 )
 
 foreach ($nomeServico in $listaServicos) {
-    Invoke-Etapa -Nome "Desativando servico: $nomeServico" -Acao {
-        $servico = Get-Service -Name $nomeServico -ErrorAction SilentlyContinue
-        if ($servico) {
-            Stop-Service -Name $nomeServico -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $nomeServico -StartupType Disabled -ErrorAction Stop
-        }
-        else {
-            throw "Servico nao encontrado neste sistema (normal em algumas edicoes do Windows)."
-        }
+    $servicoExiste = [bool](Get-Service -Name $nomeServico -ErrorAction SilentlyContinue)
+    Invoke-EtapaSeAplicavel -Nome "Desativando servico: $nomeServico" -Condicao $servicoExiste -MotivoSeNaoAplicavel "Servico nao existe nesta edicao/versao do Windows" -Acao {
+        Stop-Service -Name $nomeServico -Force -ErrorAction SilentlyContinue
+        Set-Service -Name $nomeServico -StartupType Disabled -ErrorAction Stop
     }
 }
 
@@ -472,27 +621,10 @@ foreach ($nomeServico in $listaServicos) {
 Write-Banner -Texto "ETAPA 6 DE 12 - APPS PADRAO DO WINDOWS" -Atual 6 -Total $totalEtapas
 
 $listaApps = @(
-    "*3DBuilder*",
-    "*BingWeather*",
-    "*BingNews*",
-    "*BingFinance*",
-    "*GetHelp*",
-    "*Getstarted*",
-    "*OfficeHub*",
-    "*Solitaire*",
-    "*Xbox*",
-    "*ZuneMusic*",
-    "*ZuneVideo*",
-    "*YourPhone*",
-    "*People*",
-    "*Wallet*",
-    "*SkypeApp*",
-    "*MixedReality*",
-    "*Print3D*",
-    "*Alarms*",
-    "*Feedback*",
-    "*Todos*",
-    "*QuickAssist*"
+    "*3DBuilder*", "*BingWeather*", "*BingNews*", "*BingFinance*", "*GetHelp*",
+    "*Getstarted*", "*OfficeHub*", "*Solitaire*", "*Xbox*", "*ZuneMusic*",
+    "*ZuneVideo*", "*YourPhone*", "*People*", "*Wallet*", "*SkypeApp*",
+    "*MixedReality*", "*Print3D*", "*Alarms*", "*Feedback*", "*Todos*", "*QuickAssist*"
 )
 
 foreach ($padraoApp in $listaApps) {
@@ -562,14 +694,9 @@ Write-Banner -Texto "ETAPA 8 DE 12 - PROCESSOS EM EXECUCAO" -Atual 8 -Total $tot
 $listaProcessos = @("OneDrive", "Cortana", "SearchApp", "Widgets", "YourPhone")
 
 foreach ($nomeProcesso in $listaProcessos) {
-    Invoke-Etapa -Nome "Encerrando processo: $nomeProcesso" -Acao {
-        $processoAtivo = Get-Process -Name $nomeProcesso -ErrorAction SilentlyContinue
-        if ($processoAtivo) {
-            Stop-Process -Name $nomeProcesso -Force -ErrorAction Stop
-        }
-        else {
-            throw "Processo nao estava em execucao (nada a fazer)."
-        }
+    $processoAtivo = [bool](Get-Process -Name $nomeProcesso -ErrorAction SilentlyContinue)
+    Invoke-EtapaSeAplicavel -Nome "Encerrando processo: $nomeProcesso" -Condicao $processoAtivo -MotivoSeNaoAplicavel "Processo nao estava em execucao (nada a fazer)" -Acao {
+        Stop-Process -Name $nomeProcesso -Force -ErrorAction Stop
     }
 }
 
@@ -580,16 +707,11 @@ foreach ($nomeProcesso in $listaProcessos) {
 Write-Banner -Texto "ETAPA 9 DE 12 - SUGESTOES DO MENU INICIAR" -Atual 9 -Total $totalEtapas
 
 $propriedadesContentDelivery = @(
-    "SubscribedContent-338388Enabled",
-    "SubscribedContent-338389Enabled",
-    "SubscribedContent-353694Enabled",
-    "SubscribedContent-353696Enabled",
-    "SystemPaneSuggestionsEnabled",
-    "SilentInstalledAppsEnabled",
-    "ContentDeliveryAllowed",
-    "OemPreInstalledAppsEnabled",
-    "PreInstalledAppsEnabled",
-    "PreInstalledAppsEverEnabled"
+    "SubscribedContent-338388Enabled", "SubscribedContent-338389Enabled",
+    "SubscribedContent-353694Enabled", "SubscribedContent-353696Enabled",
+    "SystemPaneSuggestionsEnabled", "SilentInstalledAppsEnabled",
+    "ContentDeliveryAllowed", "OemPreInstalledAppsEnabled",
+    "PreInstalledAppsEnabled", "PreInstalledAppsEverEnabled"
 )
 
 foreach ($propriedade in $propriedadesContentDelivery) {
@@ -621,7 +743,16 @@ Invoke-Etapa -Nome "Limpando pasta temp do Windows" -Acao {
 }
 
 Invoke-Etapa -Nome "Limpando lixeira do sistema" -Acao {
-    Clear-RecycleBin -Force -ErrorAction Stop
+    # Corrigido: Clear-RecycleBin lanca excecao se a lixeira ja estiver vazia.
+    # Isso nao e uma falha real, entao tratamos esse caso especificamente.
+    try {
+        Clear-RecycleBin -Force -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception.Message -notmatch "no items|vazi|not found|nao foi encontrad") {
+            throw
+        }
+    }
 }
 
 # ==========================================================
@@ -637,13 +768,49 @@ Invoke-Etapa -Nome "Reiniciando processo explorer.exe" -Acao {
 }
 
 # ==========================================================
-# ETAPA 12 - FINALIZACAO E RESUMO
+# ETAPA 12 - FINALIZACAO, RELATORIO E BACKUP DE CONFIGURACOES
 # ==========================================================
 
 Write-Banner -Texto "ETAPA 12 DE 12 - CONCLUIDO" -Atual 12 -Total $totalEtapas
 
 $duracaoTotal = (Get-Date) - $script:HoraInicio
-$duracaoFormatada = "{0:mm} min {0:ss} seg" -f $duracaoTotal
+$duracaoFormatada = "{0:hh} h {0:mm} min {0:ss} seg" -f $duracaoTotal
+
+# Salva o backup dos valores antigos de registro em JSON (para referencia/reversao manual)
+try {
+    $script:BackupValores | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:CaminhoBackupConfig -Encoding UTF8
+}
+catch {
+    Write-Log "Nao foi possivel salvar o arquivo de backup de configuracoes -- $($_.Exception.Message)"
+}
+
+# Monta o relatorio em texto, salvo na pasta base
+$linhasRelatorio = New-Object System.Collections.Generic.List[string]
+$linhasRelatorio.Add("OPTIMIZATION LOCAL $script:Versao - Relatorio de execucao")
+$linhasRelatorio.Add("Data/hora   : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+$linhasRelatorio.Add("Sistema     : $($script:InfoSistema.Nome) (build $($script:InfoSistema.Build)), $($script:InfoSistema.Arquitetura)")
+$linhasRelatorio.Add("Duracao     : $duracaoFormatada")
+$linhasRelatorio.Add("Etapas OK   : $script:TotalOk")
+$linhasRelatorio.Add("Falhas      : $script:TotalFalhou")
+$linhasRelatorio.Add("Puladas     : $script:TotalPulou")
+$linhasRelatorio.Add("")
+$linhasRelatorio.Add("Detalhe por etapa:")
+$linhasRelatorio.Add("-------------------")
+foreach ($item in $script:RelatorioEtapas) {
+    $linha = "[$($item.Resultado)] $($item.Etapa)"
+    if ($item.Detalhe) { $linha += " -- $($item.Detalhe)" }
+    $linhasRelatorio.Add($linha)
+}
+$linhasRelatorio.Add("")
+$linhasRelatorio.Add("Log completo   : $script:CaminhoLog")
+$linhasRelatorio.Add("Backup config  : $script:CaminhoBackupConfig")
+
+try {
+    $linhasRelatorio | Out-File -FilePath $script:CaminhoRelatorio -Encoding UTF8
+}
+catch {
+    Write-Log "Nao foi possivel salvar o relatorio -- $($_.Exception.Message)"
+}
 
 Write-Host ""
 Write-Animado -Texto "Otimizacao concluida." -Cor Green -AtrasoMs 10
@@ -651,9 +818,14 @@ Write-Host ""
 Write-Host "  Resumo da execucao" -ForegroundColor Cyan
 Write-Host "  -------------------"
 Write-Host ("  Etapas concluidas com sucesso : " + $script:TotalOk) -ForegroundColor Green
+Write-Host ("  Etapas puladas (nao aplicavel): " + $script:TotalPulou) -ForegroundColor DarkYellow
 Write-Host ("  Etapas com falha              : " + $script:TotalFalhou) -ForegroundColor $(if ($script:TotalFalhou -gt 0) { "Yellow" } else { "Green" })
 Write-Host ("  Tempo total de execucao       : " + $duracaoFormatada)
-Write-Host ("  Log completo salvo em         : " + $script:CaminhoLog)
+Write-Host ""
+Write-Host "  Pasta de trabalho    : $script:PastaBase" -ForegroundColor DarkGray
+Write-Host "  Log completo         : $script:CaminhoLog" -ForegroundColor DarkGray
+Write-Host "  Relatorio da execucao: $script:CaminhoRelatorio" -ForegroundColor DarkGray
+Write-Host "  Backup de configs    : $script:CaminhoBackupConfig" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Um ponto de restauracao foi criado antes das alteracoes." -ForegroundColor Green
 Write-Host "Caso algo nao funcione como esperado, use a Restauracao do" -ForegroundColor Green
@@ -667,7 +839,12 @@ if ($script:TotalFalhou -gt 0) {
     Write-Host ""
 }
 
-Write-Log "===== RESUMO FINAL: $script:TotalOk OK / $script:TotalFalhou FALHOU / Duracao $duracaoFormatada ====="
+Write-Log "===== RESUMO FINAL: $script:TotalOk OK / $script:TotalFalhou FALHOU / $script:TotalPulou PULADAS / Duracao $duracaoFormatada ====="
+
+try {
+    Start-Process explorer.exe -ArgumentList $script:PastaBase
+}
+catch { }
 
 $respostaReinicio = Read-Host "Deseja reiniciar o computador agora para aplicar todas as alteracoes? (S/N)"
 
