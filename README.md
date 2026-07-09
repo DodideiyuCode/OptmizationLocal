@@ -1,8 +1,33 @@
-# Optmization Local 1.2
+<div align="center">
 
-Script de otimizacao para **Windows 10 e Windows 11**, feito para rodar com
-um unico comando no PowerShell, sem precisar instalar nada nem clonar o
-repositorio manualmente.
+# Optmization Local
+
+**Otimização completa do Windows 10/11 com um único comando no PowerShell**
+
+[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square&logo=windows&logoColor=white)](#requisitos)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?style=flat-square&logo=powershell&logoColor=white)](#requisitos)
+[![Version](https://img.shields.io/badge/version-1.2-informational?style=flat-square)](#)
+[![Status](https://img.shields.io/badge/status-ativo-success?style=flat-square)](#)
+[![License](https://img.shields.io/badge/uso-por%20sua%20conta%20e%20risco-lightgrey?style=flat-square)](#aviso-legal)
+
+</div>
+
+Script de otimização feito para rodar com um único comando no PowerShell, sem precisar instalar nada nem clonar o repositório manualmente.
+
+---
+
+## Índice
+
+- [Como executar](#como-executar)
+- [Requisitos](#requisitos)
+- [Segurança e reversão](#segurança-e-reversão)
+- [Robustez e log de execução](#robustez-e-log-de-execução)
+- [O que o script faz](#o-que-o-script-faz-etapa-por-etapa)
+- [Tratamento de erros](#tratamento-de-erros)
+- [Como reverter](#como-reverter)
+- [Aviso legal](#aviso-legal)
+
+---
 
 ## Como executar
 
@@ -12,174 +37,120 @@ Abra o **PowerShell como Administrador** e cole o comando abaixo:
 irm https://raw.githubusercontent.com/DodideiyuCode/OptmizationLocal/main/optimize.ps1 | iex
 ```
 
-Se o PowerShell nao estiver aberto como Administrador, o proprio script
-detecta isso e abre uma nova janela elevada automaticamente (o Windows vai
-mostrar o aviso de UAC, basta clicar em "Sim").
+Se o PowerShell não estiver aberto como Administrador, o próprio script detecta isso e abre uma nova janela elevada automaticamente. O Windows vai mostrar o aviso de UAC — basta clicar em "Sim".
+
+---
 
 ## Requisitos
 
-- Windows 10 ou Windows 11
-- PowerShell 5.1 ou superior (ja vem instalado por padrao)
-- Executar como Administrador
-- Conexao com a internet (para baixar o script via `irm`)
+| Requisito | Detalhe |
+|---|---|
+| Sistema operacional | Windows 10 ou Windows 11 |
+| PowerShell | 5.1 ou superior (já vem instalado por padrão) |
+| Permissão | Executar como Administrador |
+| Internet | Necessária para baixar o script via `irm` |
 
-## Aviso de seguranca
+---
 
-Antes de qualquer alteracao, o script cria automaticamente um **Ponto de
-Restauracao do Sistema** (`Checkpoint-Computer`). Caso algo nao funcione
-como esperado apos a otimizacao, use a ferramenta **Restauracao do Sistema**
-do Windows para reverter todas as mudancas com poucos cliques.
+## Segurança e reversão
 
-O script **nao apaga arquivos pessoais**. Nenhum documento, foto, video ou
-arquivo da pasta Downloads e tocado. As alteracoes ficam restritas a:
+Antes de qualquer alteração, o script cria automaticamente um **Ponto de Restauração do Sistema** (`Checkpoint-Computer`). Caso algo não funcione como esperado após a otimização, use a ferramenta **Restauração do Sistema** do Windows para reverter todas as mudanças com poucos cliques.
 
-- Configuracoes do sistema (registro, servicos, energia, aparencia)
-- Aplicativos padrao do Windows (apps UWP como Xbox, 3D Builder, etc.)
-- Arquivos temporarios reversiveis (`%TEMP%` e `C:\Windows\Temp`)
+O script **não apaga arquivos pessoais**. Nenhum documento, foto, vídeo ou arquivo da pasta Downloads é tocado. As alterações ficam restritas a:
 
-Ao rodar o script, uma tela de termos de uso e exibida no console. Voce
-precisa navegar com as setas do teclado ate a opcao **SIM** e pressionar
-Enter para continuar. Selecionando **NAO**, o script e encerrado sem
-nenhuma alteracao no sistema.
+- Configurações do sistema (registro, serviços, energia, aparência)
+- Aplicativos padrão do Windows (apps UWP como Xbox, 3D Builder, etc.)
+- Arquivos temporários reversíveis (`%TEMP%` e `C:\Windows\Temp`)
 
-## Termo de responsabilidade
+### Termo de uso exibido no console
 
-Esta tela inclui um termo de responsabilidade. Ao selecionar **SIM**, voce
-declara estar ciente de que:
+Ao rodar o script, uma tela de termos de uso é exibida no console. Navegue com as setas do teclado até a opção **SIM** e pressione Enter para continuar. Selecionando **NÃO**, o script é encerrado sem nenhuma alteração no sistema.
 
-- O script e fornecido "como esta", sem nenhuma garantia de qualquer tipo.
-- O autor e os mantenedores do repositorio Optmization Local **nao se
-  responsabilizam** por eventuais danos, perda de dados, instabilidade do
-  sistema, mau funcionamento de hardware ou software, ou qualquer
-  prejuizo direto ou indireto decorrente do uso deste script.
-- Um ponto de restauracao e criado automaticamente antes de qualquer
-  alteracao, mas a decisao de usa-lo para reverter mudancas e de
-  responsabilidade do usuario.
-- O uso deste script e por sua conta e risco.
+Ao selecionar **SIM**, você declara estar ciente de que:
 
-## Robustez e log de execucao
+- O script é fornecido "como está", sem nenhuma garantia de qualquer tipo.
+- O autor e os mantenedores do repositório Optmization Local não se responsabilizam por eventuais danos, perda de dados, instabilidade do sistema, mau funcionamento de hardware/software, ou qualquer prejuízo direto ou indireto decorrente do uso deste script.
+- Um ponto de restauração é criado automaticamente antes de qualquer alteração, mas a decisão de usá-lo para reverter mudanças é de responsabilidade do usuário.
+- O uso deste script é por sua conta e risco.
 
-A partir desta versao, o script:
+---
 
-- Grava um log completo de cada execucao em
-  `%TEMP%\OptmizationLocal_log_AAAAMMDD_HHmmss.txt`, contendo o detalhe
-  completo de qualquer erro (o console mostra apenas um resumo de uma
-  linha, para nao poluir a tela).
-- Usa `$ErrorActionPreference = "Stop"` internamente, para que todo erro
-  de cada etapa seja realmente capturado pelo `try/catch` (evitando
-  falsos "OK" quando um comando falha silenciosamente no fundo).
-- Para gravacao no registro do Windows, usa uma estrategia de 3 niveis
-  de fallback: (1) cmdlet nativo do PowerShell, (2) `reg.exe`, e (3)
-  assumir a posse (ownership) da chave de registro quando ela estiver
-  protegida por permissoes restritas, tentando novamente em seguida.
-  Isso resolve casos como a chave `TaskbarDa` (Widgets), que em algumas
-  versoes do Windows 11 vem com permissoes mais restritas mesmo para
-  administradores.
-- Exibe uma barra de progresso e um resumo final com quantidade de
-  etapas concluidas com sucesso, quantidade de falhas e tempo total de
-  execucao.
+## Robustez e log de execução
 
-## Sobre apps que "falham" na remocao
+A partir desta versão, o script:
 
-Alguns aplicativos do Windows (como partes do Xbox ou do People) sao
-pacotes de sistema protegidos pela Microsoft e nao podem ser removidos
-mesmo por scripts administrativos, em algumas builds do Windows. Quando
-isso acontece, o script registra a etapa como "FALHOU" e segue para a
-proxima, sem travar a execucao. Isso e esperado e nao indica um problema
-com o script.
+- Grava um log completo de cada execução em `%TEMP%\OptmizationLocal_log_AAAAMMDD_HHmmss.txt`, contendo o detalhe completo de qualquer erro (o console mostra apenas um resumo de uma linha, para não poluir a tela).
+- Usa `$ErrorActionPreference = "Stop"` internamente, para que todo erro de cada etapa seja realmente capturado pelo `try/catch` (evitando falsos "OK" quando um comando falha silenciosamente).
+- Para gravação no registro do Windows, usa uma estratégia de 3 níveis de fallback:
+  1. Cmdlet nativo do PowerShell
+  2. `reg.exe`
+  3. Assumir a posse (ownership) da chave de registro quando ela estiver protegida por permissões restritas, tentando novamente em seguida
+
+  Isso resolve casos como a chave `TaskbarDa` (Widgets), que em algumas versões do Windows 11 vem com permissões mais restritas mesmo para administradores.
+- Exibe uma barra de progresso e um resumo final com quantidade de etapas concluídas com sucesso, quantidade de falhas e tempo total de execução.
+
+### Sobre apps que "falham" na remoção
+
+Alguns aplicativos do Windows (como partes do Xbox ou do People) são pacotes de sistema protegidos pela Microsoft e não podem ser removidos mesmo por scripts administrativos, em algumas builds do Windows. Quando isso acontece, o script registra a etapa como "FALHOU" e segue para a próxima, sem travar a execução. Isso é esperado e não indica um problema com o script.
+
+---
 
 ## O que o script faz, etapa por etapa
 
-1. **Verificacao de administrador**
-   Confere se o PowerShell esta rodando como Administrador. Se nao
-   estiver, reabre o proprio script em uma janela elevada.
+| # | Etapa | Descrição |
+|---|---|---|
+| 1 | Verificação de administrador | Confere se o PowerShell está rodando como Administrador; se não estiver, reabre em janela elevada |
+| 2 | Tela de termos de uso | Mostra um resumo do que será feito e pede confirmação via menu navegável (SIM/NÃO) |
+| 3 | Ponto de restauração do sistema | Habilita a proteção do sistema no disco `C:` e cria o ponto "Optmization Local - Antes da otimização" |
+| 4 | Plano de energia de Alto Desempenho | Ativa o plano de alto desempenho e desativa timeouts de monitor, standby e hibernação |
+| 5 | Efeitos visuais | Desativa transparência das janelas, ajusta para "melhor desempenho" e reduz animações |
+| 6 | Barra de tarefas | Remove Task View, ícone de Widgets, Chat/Teams e o botão do Copilot |
+| 7 | Serviços não essenciais | Para e desativa serviços listados abaixo |
+| 8 | Apps padrão do Windows (UWP) | Remove aplicativos pré-instalados considerados desnecessários |
+| 9 | Telemetria | Define `AllowTelemetry = 0` e desativa experiências personalizadas baseadas em diagnóstico |
+| 10 | Processos em execução | Encerra `OneDrive`, `Cortana`, `SearchApp`, `Widgets` e `YourPhone` |
+| 11 | Sugestões e anúncios do menu Iniciar | Desativa sugestões, anúncios e conteúdo patrocinado (`ContentDeliveryManager`) |
+| 12 | Limpeza de arquivos temporários | Remove conteúdo de `%TEMP%` e `C:\Windows\Temp`, além de esvaziar a Lixeira |
+| 13 | Reinício do Explorer | Reinicia `explorer.exe` para aplicar as mudanças imediatamente |
+| 14 | Pergunta final | Pergunta se deseja reiniciar o computador agora (S/N) |
 
-2. **Tela de termos de uso**
-   Mostra um resumo do que sera feito e pede confirmacao do usuario
-   atraves de um menu navegavel por setas (SIM / NAO).
+### Serviços desativados na etapa 7
 
-3. **Ponto de restauracao do sistema**
-   Habilita a protecao do sistema no disco `C:` e cria um ponto de
-   restauracao chamado "Optmization Local - Antes da otimizacao".
+`SysMain`, `WSearch`, `DiagTrack`, `dmwappushservice`, `Fax`, `Spooler`, `XblAuthManager`, `XblGameSave`, `XboxGipSvc`, `WbioSrvc`, `RetailDemo`
 
-4. **Plano de energia de Alto Desempenho**
-   Cria (se necessario) e ativa o plano de energia de alto desempenho do
-   Windows, alem de desativar os timeouts de monitor, standby e
-   hibernacao, mantendo o PC sempre ligado e responsivo durante o uso.
+> **Atenção:** desativar `Spooler` desativa a impressão. Desativar `WSearch` desativa a indexação/busca do Windows. Se você usa essas funções no dia a dia, reative o serviço específico depois pelo comando:
+> ```powershell
+> Set-Service -Name "NomeDoServico" -StartupType Automatic
+> ```
 
-5. **Efeitos visuais**
-   Desativa a transparencia das janelas, ajusta o "Desempenho Visual" do
-   Windows para a opcao "Ajustar para obter melhor desempenho" e reduz
-   animacoes de janelas e menus.
+### Apps UWP removidos na etapa 8
 
-6. **Barra de tarefas**
-   Remove o botao de Task View, o icone de Widgets, o icone de Chat/Teams
-   e o botao do Copilot da barra de tarefas.
+3D Builder, Bing Weather/News/Finance, Get Started/Get Help, Office Hub, Solitaire, Xbox, Zune Music/Video, Your Phone, People, Wallet, Skype, Mixed Reality, Print3D, Alarms, Feedback, To Do, Quick Assist
 
-7. **Servicos nao essenciais**
-   Para e desativa os servicos: `SysMain`, `WSearch`, `DiagTrack`,
-   `dmwappushservice`, `Fax`, `Spooler`, `XblAuthManager`, `XblGameSave`,
-   `XboxGipSvc`, `WbioSrvc` e `RetailDemo`.
-
-   > Atencao: desativar `Spooler` desativa a impressao. Desativar
-   > `WSearch` desativa a indexacao/busca do Windows. Se voce usa essas
-   > funcoes no dia a dia, reative o servico especifico depois pelo
-   > comando `Set-Service -Name "NomeDoServico" -StartupType Automatic`.
-
-8. **Apps padrao do Windows (UWP)**
-   Remove aplicativos pre-instalados considerados desnecessarios, como
-   3D Builder, Bing Weather/News/Finance, Get Started/Get Help, Office
-   Hub, Solitaire, Xbox, Zune Music/Video, Your Phone, People, Wallet,
-   Skype, Mixed Reality, Print3D, Alarms, Feedback, To Do e Quick
-   Assist.
-
-9. **Telemetria**
-   Define a chave de registro `AllowTelemetry` como `0` (nivel minimo
-   permitido pela edicao do Windows) e desativa experiencias
-   personalizadas baseadas em dados de diagnostico.
-
-10. **Processos em execucao**
-    Encerra processos que costumam consumir recursos em segundo plano,
-    como `OneDrive`, `Cortana`, `SearchApp`, `Widgets` e `YourPhone`.
-
-11. **Sugestoes e anuncios do menu Iniciar**
-    Desativa as sugestoes de aplicativos, anuncios e conteudo
-    patrocinado que aparecem no menu Iniciar (`ContentDeliveryManager`).
-
-12. **Limpeza de arquivos temporarios**
-    Remove o conteudo das pastas `%TEMP%` e `C:\Windows\Temp`, alem de
-    esvaziar a Lixeira. Nenhum arquivo pessoal e afetado.
-
-13. **Reinicio do Explorer**
-    Reinicia o processo `explorer.exe` para aplicar as mudancas visuais
-    e da barra de tarefas imediatamente, sem precisar reiniciar o PC.
-
-14. **Pergunta final**
-    Ao final, o script pergunta se voce deseja reiniciar o computador
-    agora (`S` ou `N`) para garantir que todas as alteracoes sejam
-    aplicadas por completo.
+---
 
 ## Tratamento de erros
 
-Cada etapa do script roda dentro de um bloco `try/catch` independente.
-Se algum comando falhar (por exemplo, um servico que nao existe na sua
-versao do Windows), o script registra a falha no console com a mensagem
-`FALHOU:` e continua normalmente para a proxima etapa, sem travar a
-execucao.
+Cada etapa do script roda dentro de um bloco `try/catch` independente. Se algum comando falhar (por exemplo, um serviço que não existe na sua versão do Windows), o script registra a falha no console com a mensagem `FALHOU:` e continua normalmente para a próxima etapa, sem travar a execução.
 
-## Reversao
+---
 
-Se quiser desfazer as alteracoes:
+## Como reverter
 
 1. Pesquise por "Restaurar sistema" no menu Iniciar
-2. Escolha o ponto de restauracao "Optmization Local - Antes da
-   otimizacao"
-3. Siga o assistente do Windows para concluir a restauracao
+2. Escolha o ponto de restauração "Optmization Local - Antes da otimização"
+3. Siga o assistente do Windows para concluir a restauração
+
+---
 
 ## Aviso legal
 
-Use por sua conta e risco. Embora o script tenha sido feito para ser
-seguro e reversivel (com ponto de restauracao automatico), alteracoes de
-sistema sempre envolvem algum risco. Revise o codigo de `optimize.ps1`
-antes de executar se quiser entender exatamente o que sera feito na sua
-maquina. total responsa tua kk tmj obrigado por usar
+Use por sua conta e risco. Embora o script tenha sido feito para ser seguro e reversível (com ponto de restauração automático), alterações de sistema sempre envolvem algum risco. Revise o código de `optimize.ps1` antes de executar se quiser entender exatamente o que será feito na sua máquina.
+
+---
+
+<div align="center">
+
+Feito com dedicação. Use com responsabilidade.
+
+</div>
