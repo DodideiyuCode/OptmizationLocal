@@ -8,9 +8,9 @@
     irm https://raw.githubusercontent.com/DodideiyuCode/OptmizationLocal/main/optimize.ps1 | iex
 #>
 
-$ErrorActionPreference = "Stop"
-$script:Versao   = "v1.2"
-$ScriptUrl       = "https://raw.githubusercontent.com/DodideiyuCode/OptmizationLocal/main/optimize.ps1"
+ $ErrorActionPreference = "Stop"
+ $script:Versao   = "v1.2"
+ $ScriptUrl       = "https://raw.githubusercontent.com/DodideiyuCode/OptmizationLocal/main/optimize.ps1"
 
 # Corrige erro comum de TLS em Windows/PowerShell mais antigos ao baixar do GitHub
 try {
@@ -18,19 +18,19 @@ try {
 }
 catch { }
 
-$script:TotalOk     = 0
-$script:TotalFalhou = 0
-$script:TotalPulou  = 0
-$script:HoraInicio  = Get-Date
-$script:Carimbo     = Get-Date -Format "yyyyMMdd_HHmmss"
+ $script:TotalOk     = 0
+ $script:TotalFalhou = 0
+ $script:TotalPulou  = 0
+ $script:HoraInicio  = Get-Date
+ $script:Carimbo     = Get-Date -Format "yyyyMMdd_HHmmss"
 
 # ==========================================================
 # ESTRUTURA DE PASTAS (C:\Otimizacoes by Dodideiyu)
 # ==========================================================
 
-$script:PastaBase   = "C:\Otimizações by Dodideiyu"
-$script:PastaLogs   = Join-Path $script:PastaBase "Logs"
-$script:PastaBackup = Join-Path $script:PastaBase "Backup de Configuracoes"
+ $script:PastaBase   = "C:\Otimizações by Dodideiyu"
+ $script:PastaLogs   = Join-Path $script:PastaBase "Logs"
+ $script:PastaBackup = Join-Path $script:PastaBase "Backup de Configuracoes"
 
 foreach ($pasta in @($script:PastaBase, $script:PastaLogs, $script:PastaBackup)) {
     if (-not (Test-Path $pasta)) {
@@ -38,14 +38,14 @@ foreach ($pasta in @($script:PastaBase, $script:PastaLogs, $script:PastaBackup))
     }
 }
 
-$script:CaminhoLog          = Join-Path $script:PastaLogs   ("log_" + $script:Carimbo + ".txt")
-$script:CaminhoRelatorio    = Join-Path $script:PastaBase   ("relatorio_" + $script:Carimbo + ".txt")
-$script:CaminhoBackupConfig = Join-Path $script:PastaBackup ("config_antiga_" + $script:Carimbo + ".json")
-$script:BackupValores       = [System.Collections.Generic.List[object]]::new()
-$script:RelatorioEtapas     = [System.Collections.Generic.List[object]]::new()
+ $script:CaminhoLog          = Join-Path $script:PastaLogs   ("log_" + $script:Carimbo + ".txt")
+ $script:CaminhoRelatorio    = Join-Path $script:PastaBase   ("relatorio_" + $script:Carimbo + ".txt")
+ $script:CaminhoBackupConfig = Join-Path $script:PastaBackup ("config_antiga_" + $script:Carimbo + ".json")
+ $script:BackupValores       = [System.Collections.Generic.List[object]]::new()
+ $script:RelatorioEtapas     = [System.Collections.Generic.List[object]]::new()
 
 # ==========================================================
-# FUNCOES AUXILIARES DE LOG E VISUAL
+# FUNCOES AUXILIARES DE LOG E VISUAL (CAMADA REFACTORED)
 # ==========================================================
 
 function Write-Log {
@@ -55,19 +55,6 @@ function Write-Log {
         Add-Content -Path $script:CaminhoLog -Value "[$carimbo] $Texto" -Encoding UTF8 -ErrorAction SilentlyContinue
     }
     catch { }
-}
-
-function Write-Animado {
-    param(
-        [string]$Texto,
-        [ConsoleColor]$Cor = "White",
-        [int]$AtrasoMs = 6
-    )
-    foreach ($caractere in $Texto.ToCharArray()) {
-        Write-Host -NoNewline $caractere -ForegroundColor $Cor
-        Start-Sleep -Milliseconds $AtrasoMs
-    }
-    Write-Host ""
 }
 
 function Get-LarguraConsole {
@@ -85,9 +72,31 @@ function Write-CabecalhoComVersao {
     $rotuloVersao = "[$script:Versao]"
     $espacos = $largura - $TituloEsquerda.Length - $rotuloVersao.Length - 1
     if ($espacos -lt 1) { $espacos = 1 }
-    Write-Host ("=" * $largura) -ForegroundColor Cyan
+    Write-Host ("-" * $largura) -ForegroundColor Cyan
     Write-Host ($TituloEsquerda + (" " * $espacos) + $rotuloVersao) -ForegroundColor Cyan
-    Write-Host ("=" * $largura) -ForegroundColor Cyan
+    Write-Host ("-" * $largura) -ForegroundColor Cyan
+}
+
+function Show-Progresso {
+    param([int]$Atual, [int]$Total)
+    $percentual = [math]::Round(($Atual / $Total) * 100)
+    $tamanhoBarra = 30
+    $preenchido = [math]::Round(($percentual / 100) * $tamanhoBarra)
+    if ($preenchido -gt $tamanhoBarra) { $preenchido = $tamanhoBarra }
+    $vazio = $tamanhoBarra - $preenchido
+    
+    # Tenta usar caracteres Unicode modernos, com fallback para ASCII limpo
+    $charCheio = [char]0x2588
+    $charVazio = [char]0x2591
+    
+    try {
+        $barra = ($charCheio.ToString() * $preenchido) + ($charVazio.ToString() * $vazio)
+    }
+    catch {
+        $barra = ("o" * $preenchido) + ("-" * $vazio)
+    }
+    
+    Write-Host ("  [" + $barra + "] " + $percentual.ToString().PadLeft(3) + "%") -ForegroundColor Cyan
 }
 
 function Write-Banner {
@@ -100,26 +109,17 @@ function Write-Banner {
     Write-Log "===== $Texto ====="
 }
 
-function Show-Progresso {
-    param([int]$Atual, [int]$Total)
-    $percentual = [math]::Round(($Atual / $Total) * 100)
-    $preenchido = [math]::Round(($percentual / 100) * 30)
-    if ($preenchido -gt 30) { $preenchido = 30 }
-    $vazio = 30 - $preenchido
-    $barra = ("#" * $preenchido) + ("-" * $vazio)
-    Write-Host ("  [" + $barra + "] " + $percentual + "%") -ForegroundColor DarkCyan
-}
-
 function Write-Step {
     param([string]$Texto)
     Write-Host ""
-    Write-Host -NoNewline ">> " -ForegroundColor Yellow
-    Write-Animado -Texto $Texto -Cor Yellow -AtrasoMs 5
+    Write-Host "  > " -NoNewline -ForegroundColor Cyan
+    Write-Host $Texto -ForegroundColor White
 }
 
 function Write-Ok {
     param([string]$Texto)
-    Write-Host "   OK: $Texto" -ForegroundColor Green
+    Write-Host "    [OK] " -NoNewline -ForegroundColor Green
+    Write-Host $Texto
     Write-Log "OK: $Texto"
     $script:RelatorioEtapas.Add([PSCustomObject]@{ Etapa = $Texto; Resultado = "OK"; Detalhe = "" })
 }
@@ -127,15 +127,19 @@ function Write-Ok {
 function Write-Falhou {
     param([string]$Nome, [string]$MensagemCompleta)
     $primeiraLinha = ($MensagemCompleta -split "`r`n|`n")[0].Trim()
-    Write-Host "   FALHOU: $Nome -- $primeiraLinha" -ForegroundColor Red
-    Write-Host "   (detalhes completos no log: $script:CaminhoLog)" -ForegroundColor DarkGray
+    Write-Host "    [!!] " -NoNewline -ForegroundColor Red
+    Write-Host "$Nome" -NoNewline -ForegroundColor Red
+    Write-Host " -- $primeiraLinha" -ForegroundColor DarkGray
+    Write-Host "         (detalhes no log: $script:CaminhoLog)" -ForegroundColor DarkGray
     Write-Log "FALHOU: $Nome -- MENSAGEM COMPLETA: $MensagemCompleta"
     $script:RelatorioEtapas.Add([PSCustomObject]@{ Etapa = $Nome; Resultado = "FALHOU"; Detalhe = $primeiraLinha })
 }
 
 function Write-Pulada {
     param([string]$Nome, [string]$Motivo)
-    Write-Host "   PULADA: $Nome -- $Motivo" -ForegroundColor DarkYellow
+    Write-Host "    [--] " -NoNewline -ForegroundColor Yellow
+    Write-Host "$Nome" -NoNewline -ForegroundColor DarkGray
+    Write-Host " -- $Motivo" -ForegroundColor DarkGray
     Write-Log "PULADA: $Nome -- $Motivo"
     $script:RelatorioEtapas.Add([PSCustomObject]@{ Etapa = $Nome; Resultado = "PULADA"; Detalhe = $Motivo })
 }
@@ -206,7 +210,7 @@ function Get-InfoSistema {
     }
 }
 
-$script:InfoSistema = Get-InfoSistema
+ $script:InfoSistema = Get-InfoSistema
 
 # ==========================================================
 # BACKUP DE VALORES ANTIGOS DO REGISTRO (PARA REFERENCIA)
@@ -374,54 +378,77 @@ function Show-TermoDeUso {
     $opcoes = @("SIM", "NAO")
     $selecionado = 0
     $confirmado = $false
+    $largura = Get-LarguraConsole
 
     while (-not $confirmado) {
         Clear-Host
         Write-CabecalhoComVersao -TituloEsquerda "TERMOS DE USO E RESPONSABILIDADE"
         Write-Host ""
-        Write-Host "Este script ira alterar configuracoes do sistema Windows,"
-        Write-Host "incluindo plano de energia, servicos, apps padrao, registro"
-        Write-Host "do sistema, itens da barra de tarefas e arquivos temporarios."
+        
+        $textoTermo = @(
+            "Este script ira alterar configuracoes do sistema Windows,",
+            "incluindo plano de energia, servicos, apps padrao, registro",
+            "do sistema, itens da barra de tarefas e arquivos temporarios.",
+            "",
+            "Antes de qualquer alteracao, sera criado um PONTO DE",
+            "RESTAURACAO DO SISTEMA, permitindo reverter tudo caso",
+            "necessario. Alem disso, os valores antigos do registro",
+            "serao salvos em '$script:PastaBackup' para referencia.",
+            "",
+            "Nenhum arquivo pessoal (documentos, fotos, downloads) sera",
+            "apagado. Apenas configuracoes do sistema e arquivos",
+            "temporarios reversiveis serao modificados.",
+            "",
+            "TERMO DE RESPONSABILIDADE:",
+            "Este script e fornecido como esta, sem nenhuma garantia.",
+            "Ao selecionar SIM, voce declara estar ciente de que o",
+            "autor e os mantenedores do repositorio Optmization Local",
+            "nao se responsabilizam por eventuais danos, perda de",
+            "dados, instabilidade do sistema, mau funcionamento de",
+            "hardware ou software, ou qualquer prejuizo direto ou",
+            "indireto decorrente do uso deste script. O ponto de",
+            "restauracao e criado automaticamente, mas a decisao de",
+            "usa-lo para reverter alteracoes e de sua responsabilidade.",
+            "O uso deste script e por sua conta e risco.",
+            "",
+            "Leia o repositorio completo antes de continuar:",
+            "https://github.com/DodideiyuCode/OptmizationLocal"
+        )
+
+        # Aplica layout de caixa centralizada ao redor do texto
+        $margemCaixa = 4
+        $maiorLinha = ($textoTermo | Measure-Object -Property Length -Maximum).Maximum
+        $largCaixa = [Math]::Min($largura - 2, $maiorLinha + ($margemCaixa * 2))
+
+        Write-Host ("+" + ("-" * $largCaixa) + "+") -ForegroundColor DarkGray
+        foreach ($linha in $textoTermo) {
+            $espacoRestante = $largCaixa - $linha.Length
+            $esquerda = [Math]::Floor($espacoRestante / 2)
+            $direita = $espacoRestante - $esquerda
+            
+            if ($linha -match "^TERMO DE RESPONSABILIDADE:") {
+                Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor Yellow
+            } else {
+                Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor Gray
+            }
+        }
+        Write-Host ("+" + ("-" * $largCaixa) + "+") -ForegroundColor DarkGray
+        
         Write-Host ""
-        Write-Host "Antes de qualquer alteracao, sera criado um PONTO DE"
-        Write-Host "RESTAURACAO DO SISTEMA, permitindo reverter tudo caso"
-        Write-Host "necessario. Alem disso, os valores antigos do registro"
-        Write-Host "serao salvos em '$script:PastaBackup' para referencia."
-        Write-Host ""
-        Write-Host "Nenhum arquivo pessoal (documentos, fotos, downloads) sera"
-        Write-Host "apagado. Apenas configuracoes do sistema e arquivos"
-        Write-Host "temporarios reversiveis serao modificados."
-        Write-Host ""
-        Write-Host "TERMO DE RESPONSABILIDADE:" -ForegroundColor Magenta
-        Write-Host "Este script e fornecido como esta, sem nenhuma garantia."
-        Write-Host "Ao selecionar SIM, voce declara estar ciente de que o"
-        Write-Host "autor e os mantenedores do repositorio Optmization Local"
-        Write-Host "nao se responsabilizam por eventuais danos, perda de"
-        Write-Host "dados, instabilidade do sistema, mau funcionamento de"
-        Write-Host "hardware ou software, ou qualquer prejuizo direto ou"
-        Write-Host "indireto decorrente do uso deste script. O ponto de"
-        Write-Host "restauracao e criado automaticamente, mas a decisao de"
-        Write-Host "usa-lo para reverter alteracoes e de sua responsabilidade."
-        Write-Host "O uso deste script e por sua conta e risco."
-        Write-Host ""
-        Write-Host "Leia o repositorio completo antes de continuar:"
-        Write-Host "https://github.com/DodideiyuCode/OptmizationLocal"
-        Write-Host ""
-        Write-Host "Voce concorda com os termos acima e deseja continuar?"
+        Write-Host "  Voce concorda com os termos acima e deseja continuar?" -ForegroundColor White
         Write-Host ""
 
         for ($i = 0; $i -lt $opcoes.Count; $i++) {
             if ($i -eq $selecionado) {
-                Write-Host ("  [X] " + $opcoes[$i]) -ForegroundColor Green
+                Write-Host ("  [>] " + $opcoes[$i]) -ForegroundColor Green
             }
             else {
-                Write-Host ("  [ ] " + $opcoes[$i])
+                Write-Host ("  [ ] " + $opcoes[$i]) -ForegroundColor DarkGray
             }
         }
 
         Write-Host ""
-        Write-Host "Use as setas ESQUERDA / DIREITA (ou CIMA / BAIXO) para" -ForegroundColor DarkGray
-        Write-Host "escolher e ENTER para confirmar." -ForegroundColor DarkGray
+        Write-Host "  Use as setas para escolher e ENTER para confirmar." -ForegroundColor DarkGray
 
         $tecla = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
@@ -438,7 +465,7 @@ function Show-TermoDeUso {
     return $opcoes[$selecionado]
 }
 
-$respostaTermo = Show-TermoDeUso
+ $respostaTermo = Show-TermoDeUso
 Write-Log "Usuario respondeu aos termos de uso: $respostaTermo"
 
 if ($respostaTermo -ne "SIM") {
@@ -487,12 +514,14 @@ Show-TelaBoasVindas
 
 Clear-Host
 Write-CabecalhoComVersao -TituloEsquerda "INICIANDO OTIMIZACAO"
-Write-Animado -Texto "Termos aceitos. Iniciando o processo em instantes..." -Cor Green -AtrasoMs 8
-Write-Host "Pasta de trabalho : $script:PastaBase" -ForegroundColor DarkGray
-Write-Host "Log desta execucao: $script:CaminhoLog" -ForegroundColor DarkGray
-Start-Sleep -Seconds 1
+Write-Host ""
+Write-Host "  Termos aceitos. Iniciando o processo..." -ForegroundColor Green
+Write-Host "  Pasta de trabalho : $script:PastaBase" -ForegroundColor DarkGray
+Write-Host "  Log desta execucao: $script:CaminhoLog" -ForegroundColor DarkGray
+Write-Host ""
+Start-Sleep -Milliseconds 500
 
-$totalEtapas = 12
+ $totalEtapas = 12
 
 # ==========================================================
 # ETAPA 1 - PONTO DE RESTAURACAO DO SISTEMA
@@ -530,23 +559,23 @@ Invoke-Etapa -Nome "Criando e ativando plano de Alto Desempenho" -Acao {
     $guidAltoDesempenho = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
     $planosExistentes = powercfg /list
     if ($planosExistentes -notmatch $guidAltoDesempenho) {
-        Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("-duplicatescheme", $guidAltoDesempenho) | Out-Null
+        Invoke-ComandoExterno -Executavel "powercfg" -ArgumentList @("-duplicatescheme", $guidAltoDesempenho) | Out-Null
     }
-    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/setactive", $guidAltoDesempenho) | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -ArgumentList @("/setactive", $guidAltoDesempenho) | Out-Null
 }
 
 Invoke-Etapa -Nome "Desativando timeout de monitor (AC e bateria)" -Acao {
-    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "monitor-timeout-ac", "0") | Out-Null
-    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "monitor-timeout-dc", "0") | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -ArgumentList @("/change", "monitor-timeout-ac", "0") | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -ArgumentList @("/change", "monitor-timeout-dc", "0") | Out-Null
 }
 
 Invoke-Etapa -Nome "Desativando timeout de standby (AC e bateria)" -Acao {
-    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "standby-timeout-ac", "0") | Out-Null
-    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/change", "standby-timeout-dc", "0") | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -ArgumentList @("/change", "standby-timeout-ac", "0") | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -ArgumentList @("/change", "standby-timeout-dc", "0") | Out-Null
 }
 
 Invoke-Etapa -Nome "Desativando hibernacao" -Acao {
-    Invoke-ComandoExterno -Executavel "powercfg" -Argumentos @("/hibernate", "off") | Out-Null
+    Invoke-ComandoExterno -Executavel "powercfg" -ArgumentList @("/hibernate", "off") | Out-Null
 }
 
 # ==========================================================
@@ -601,7 +630,7 @@ Invoke-Etapa -Nome "Desativando Copilot do Windows" -Acao {
 
 Write-Banner -Texto "ETAPA 5 DE 12 - SERVICOS DO WINDOWS" -Atual 5 -Total $totalEtapas
 
-$listaServicos = @(
+ $listaServicos = @(
     "SysMain", "WSearch", "DiagTrack", "dmwappushservice", "Fax", "Spooler",
     "XblAuthManager", "XblGameSave", "XboxGipSvc", "WbioSrvc", "RetailDemo"
 )
@@ -620,7 +649,7 @@ foreach ($nomeServico in $listaServicos) {
 
 Write-Banner -Texto "ETAPA 6 DE 12 - APPS PADRAO DO WINDOWS" -Atual 6 -Total $totalEtapas
 
-$listaApps = @(
+ $listaApps = @(
     "*3DBuilder*", "*BingWeather*", "*BingNews*", "*BingFinance*", "*GetHelp*",
     "*Getstarted*", "*OfficeHub*", "*Solitaire*", "*Xbox*", "*ZuneMusic*",
     "*ZuneVideo*", "*YourPhone*", "*People*", "*Wallet*", "*SkypeApp*",
@@ -691,7 +720,7 @@ Invoke-Etapa -Nome "Desativando telemetria via registro do usuario atual" -Acao 
 
 Write-Banner -Texto "ETAPA 8 DE 12 - PROCESSOS EM EXECUCAO" -Atual 8 -Total $totalEtapas
 
-$listaProcessos = @("OneDrive", "Cortana", "SearchApp", "Widgets", "YourPhone")
+ $listaProcessos = @("OneDrive", "Cortana", "SearchApp", "Widgets", "YourPhone")
 
 foreach ($nomeProcesso in $listaProcessos) {
     $processoAtivo = [bool](Get-Process -Name $nomeProcesso -ErrorAction SilentlyContinue)
@@ -706,7 +735,7 @@ foreach ($nomeProcesso in $listaProcessos) {
 
 Write-Banner -Texto "ETAPA 9 DE 12 - SUGESTOES DO MENU INICIAR" -Atual 9 -Total $totalEtapas
 
-$propriedadesContentDelivery = @(
+ $propriedadesContentDelivery = @(
     "SubscribedContent-338388Enabled", "SubscribedContent-338389Enabled",
     "SubscribedContent-353694Enabled", "SubscribedContent-353696Enabled",
     "SystemPaneSuggestionsEnabled", "SilentInstalledAppsEnabled",
@@ -773,8 +802,8 @@ Invoke-Etapa -Nome "Reiniciando processo explorer.exe" -Acao {
 
 Write-Banner -Texto "ETAPA 12 DE 12 - CONCLUIDO" -Atual 12 -Total $totalEtapas
 
-$duracaoTotal = (Get-Date) - $script:HoraInicio
-$duracaoFormatada = "{0:hh} h {0:mm} min {0:ss} seg" -f $duracaoTotal
+ $duracaoTotal = (Get-Date) - $script:HoraInicio
+ $duracaoFormatada = "{0:hh} h {0:mm} min {0:ss} seg" -f $duracaoTotal
 
 # Salva o backup dos valores antigos de registro em JSON (para referencia/reversao manual)
 try {
@@ -785,25 +814,25 @@ catch {
 }
 
 # Monta o relatorio em texto, salvo na pasta base
-$linhasRelatorio = New-Object System.Collections.Generic.List[string]
-$linhasRelatorio.Add("OPTIMIZATION LOCAL $script:Versao - Relatorio de execucao")
-$linhasRelatorio.Add("Data/hora   : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
-$linhasRelatorio.Add("Sistema     : $($script:InfoSistema.Nome) (build $($script:InfoSistema.Build)), $($script:InfoSistema.Arquitetura)")
-$linhasRelatorio.Add("Duracao     : $duracaoFormatada")
-$linhasRelatorio.Add("Etapas OK   : $script:TotalOk")
-$linhasRelatorio.Add("Falhas      : $script:TotalFalhou")
-$linhasRelatorio.Add("Puladas     : $script:TotalPulou")
-$linhasRelatorio.Add("")
-$linhasRelatorio.Add("Detalhe por etapa:")
-$linhasRelatorio.Add("-------------------")
+ $linhasRelatorio = New-Object System.Collections.Generic.List[string]
+ $linhasRelatorio.Add("OPTIMIZATION LOCAL $script:Versao - Relatorio de execucao")
+ $linhasRelatorio.Add("Data/hora   : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+ $linhasRelatorio.Add("Sistema     : $($script:InfoSistema.Nome) (build $($script:InfoSistema.Build)), $($script:InfoSistema.Arquitetura)")
+ $linhasRelatorio.Add("Duracao     : $duracaoFormatada")
+ $linhasRelatorio.Add("Etapas OK   : $script:TotalOk")
+ $linhasRelatorio.Add("Falhas      : $script:TotalFalhou")
+ $linhasRelatorio.Add("Puladas     : $script:TotalPulou")
+ $linhasRelatorio.Add("")
+ $linhasRelatorio.Add("Detalhe por etapa:")
+ $linhasRelatorio.Add("-------------------")
 foreach ($item in $script:RelatorioEtapas) {
     $linha = "[$($item.Resultado)] $($item.Etapa)"
     if ($item.Detalhe) { $linha += " -- $($item.Detalhe)" }
     $linhasRelatorio.Add($linha)
 }
-$linhasRelatorio.Add("")
-$linhasRelatorio.Add("Log completo   : $script:CaminhoLog")
-$linhasRelatorio.Add("Backup config  : $script:CaminhoBackupConfig")
+ $linhasRelatorio.Add("")
+ $linhasRelatorio.Add("Log completo   : $script:CaminhoLog")
+ $linhasRelatorio.Add("Backup config  : $script:CaminhoBackupConfig")
 
 try {
     $linhasRelatorio | Out-File -FilePath $script:CaminhoRelatorio -Encoding UTF8
@@ -812,30 +841,66 @@ catch {
     Write-Log "Nao foi possivel salvar o relatorio -- $($_.Exception.Message)"
 }
 
+# TELA DE RESUMO FINAL (Layout de Caixa Consistente)
+Clear-Host
+ $largura = Get-LarguraConsole
+
+ $corFalha = if ($script:TotalFalhou -gt 0) { "Yellow" } else { "Green" }
+
+ $linhasResumo = @(
+    "",
+    "OTIMIZACAO CONCLUIDA",
+    "",
+    "  Sucesso  : $script:TotalOk",
+    "  Puladas  : $script:TotalPulou",
+    "  Falhas   : $script:TotalFalhou",
+    "  Duracao  : $duracaoFormatada",
+    "",
+    "  Pasta    : $script:PastaBase",
+    "  Log      : $script:CaminhoLog",
+    "  Relatorio: $script:CaminhoRelatorio",
+    "  Backup   : $script:CaminhoBackupConfig",
+    ""
+)
+
+ $maiorLinhaResumo = ($linhasResumo | Measure-Object -Property Length -Maximum).Maximum
+ $margemResumo = 4
+ $largCaixaResumo = [Math]::Min($largura - 2, $maiorLinhaResumo + ($margemResumo * 2))
+
+Write-Host ("+" + ("-" * $largCaixaResumo) + "+") -ForegroundColor Cyan
+foreach ($linha in $linhasResumo) {
+    $espacoRestante = $largCaixaResumo - $linha.Length
+    $esquerda = [Math]::Floor($espacoRestante / 2)
+    $direita = $espacoRestante - $esquerda
+
+    if ($linha -match "^  Sucesso") {
+        Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor Green
+    }
+    elseif ($linha -match "^  Puladas") {
+        Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor Yellow
+    }
+    elseif ($linha -match "^  Falhas") {
+        Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor $corFalha
+    }
+    elseif ($linha -match "^OTIMIZACAO CONCLUIDA") {
+        Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor Cyan
+    }
+    else {
+        Write-Host ("|" + (" " * $esquerda) + $linha + (" " * $direita) + "|") -ForegroundColor DarkGray
+    }
+}
+Write-Host ("+" + ("-" * $largCaixaResumo) + "+") -ForegroundColor Cyan
+
 Write-Host ""
-Write-Animado -Texto "Otimizacao concluida." -Cor Green -AtrasoMs 10
-Write-Host ""
-Write-Host "  Resumo da execucao" -ForegroundColor Cyan
-Write-Host "  -------------------"
-Write-Host ("  Etapas concluidas com sucesso : " + $script:TotalOk) -ForegroundColor Green
-Write-Host ("  Etapas puladas (nao aplicavel): " + $script:TotalPulou) -ForegroundColor DarkYellow
-Write-Host ("  Etapas com falha              : " + $script:TotalFalhou) -ForegroundColor $(if ($script:TotalFalhou -gt 0) { "Yellow" } else { "Green" })
-Write-Host ("  Tempo total de execucao       : " + $duracaoFormatada)
-Write-Host ""
-Write-Host "  Pasta de trabalho    : $script:PastaBase" -ForegroundColor DarkGray
-Write-Host "  Log completo         : $script:CaminhoLog" -ForegroundColor DarkGray
-Write-Host "  Relatorio da execucao: $script:CaminhoRelatorio" -ForegroundColor DarkGray
-Write-Host "  Backup de configs    : $script:CaminhoBackupConfig" -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "Um ponto de restauracao foi criado antes das alteracoes." -ForegroundColor Green
-Write-Host "Caso algo nao funcione como esperado, use a Restauracao do" -ForegroundColor Green
-Write-Host "Sistema do Windows para reverter." -ForegroundColor Green
+Write-Host "  Um ponto de restauracao foi criado antes das alteracoes." -ForegroundColor Green
+Write-Host "  Caso algo nao funcione como esperado, use a Restauracao do" -ForegroundColor Green
+Write-Host "  Sistema do Windows para reverter." -ForegroundColor Green
 Write-Host ""
 
 if ($script:TotalFalhou -gt 0) {
-    Write-Host "Algumas etapas falharam (normal em varias edicoes/versoes" -ForegroundColor Yellow
-    Write-Host "do Windows, onde certos apps/servicos ja nao existem ou" -ForegroundColor Yellow
-    Write-Host "sao protegidos pelo sistema). Consulte o log para detalhes." -ForegroundColor Yellow
+    Write-Host "  Algumas etapas falharam (normal em varias edicoes/versoes" -ForegroundColor Yellow
+    Write-Host "  do Windows, onde certos apps/servicos ja nao existem ou" -ForegroundColor Yellow
+    Write-Host "  sao protegidos pelo sistema). Consulte o log para detalhes." -ForegroundColor Yellow
     Write-Host ""
 }
 
@@ -846,13 +911,15 @@ try {
 }
 catch { }
 
-$respostaReinicio = Read-Host "Deseja reiniciar o computador agora para aplicar todas as alteracoes? (S/N)"
+ $respostaReinicio = Read-Host "  Deseja reiniciar o computador agora para aplicar todas as alteracoes? (S/N)"
 
 if ($respostaReinicio -match "^[Ss]") {
-    Write-Host "Reiniciando o computador em 10 segundos. Salve seu trabalho." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Reiniciando o computador em 10 segundos. Salve seu trabalho." -ForegroundColor Yellow
     Start-Sleep -Seconds 10
     Restart-Computer -Force
 }
 else {
-    Write-Host "Reinicio adiado. Recomenda-se reiniciar o computador manualmente em breve." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Reinicio adiado. Recomenda-se reiniciar o computador manualmente em breve." -ForegroundColor Yellow
 }
